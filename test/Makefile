@@ -1,21 +1,29 @@
 include ../Makefile.config
 
-nin_test_pingpong_SRCS = nin_test_pingpong.c nin_test_util.c
-nin_test_pingpong_OBJS = $(nin_test_pingpong_SRCS:%.c=%.o)
-nin_test_pingpong_DEPS = $(nin_test_pingpong_SRCS:%.c=%.d)
-nin_test_pingpong_PROGRAM = nin_test_pingpong
+mst_test_pingpong_SRCS = mst_test_pingpong.c mst_test_util.c
+mst_test_pingpong_OBJS = $(mst_test_pingpong_SRCS:%.c=%.o)
+mst_test_pingpong_DEPS = $(mst_test_pingpong_SRCS:%.c=%.d)
+mst_test_pingpong_PROGRAM = mst_test_pingpong
 
-nin_test_hypre_parasails_SRCS = nin_test_hypre_parasails.c nin_test_util.c
-nin_test_hypre_parasails_OBJS = $(nin_test_hypre_parasails_SRCS:%.c=%.o)
-nin_test_hypre_parasails_DEPS = $(nin_test_hypre_parasails_SRCS:%.c=%.d)
-nin_test_hypre_parasails_PROGRAM = nin_test_hypre_parasails
+mst_test_hypre_parasails_SRCS = mst_test_hypre_parasails.c mst_test_util.c
+mst_test_hypre_parasails_OBJS = $(mst_test_hypre_parasails_SRCS:%.c=%.o)
+mst_test_hypre_parasails_DEPS = $(mst_test_hypre_parasails_SRCS:%.c=%.d)
+mst_test_hypre_parasails_PROGRAM = mst_test_hypre_parasails
 
-PROGRAMS= $(nin_test_hypre_parasails_PROGRAM) \
-	 $(nin_test_pingpong_PROGRAM)
-OBJS= $(nin_test_pingpong_OBJS) \
-	 $(nin_test_hypre_parasails_OBJS) \
-DEPS= $(nin_test_pingpong_DEPS) \
-	$(nin_test_hypre_parasails_DEPS) 
+mst_test_units_SRCS = mst_test_units.c mst_test_util.c
+mst_test_units_OBJS = $(mst_test_units_SRCS:%.c=%.o)
+mst_test_units_DEPS = $(mst_test_units_SRCS:%.c=%.d)
+mst_test_units_PROGRAM = mst_test_units
+
+PROGRAMS= $(mst_test_pingpong_PROGRAM) \
+	 $(mst_test_units_PROGRAM) \
+	 $(mst_test_hypre_parasails_PROGRAM) 
+OBJS= $(mst_test_pingpong_OBJS) \
+	 $(mst_test_hypre_parasails_OBJS) \
+	 $(mst_test_units_OBJS) 
+DEPS= $(mst_test_pingpong_DEPS) \
+	$(mst_test_hypre_parasails_DEPS) \
+	$(mst_test_units_DEPS) 
 
 #$@: target name
 #$<: first dependent file
@@ -30,11 +38,15 @@ src_make:
 
 install: all
 	@$(MAKE) -C ../src install
+	@$(MAKE) -C ../scripts install
 
-$(nin_test_pingpong_PROGRAM): $(nin_test_pingpong_OBJS)
+$(mst_test_pingpong_PROGRAM): $(mst_test_pingpong_OBJS)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
 
-$(nin_test_hypre_parasails_PROGRAM): $(nin_test_hypre_parasails_OBJS)
+$(mst_test_hypre_parasails_PROGRAM): $(mst_test_hypre_parasails_OBJS)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
+
+$(mst_test_units_PROGRAM): $(mst_test_units_OBJS)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
 
 

@@ -2,12 +2,12 @@
 #define NIN_TEST_UTIL_H
 
 
-#define nin_test_dbg_print(format, ...) \
+#define mst_test_dbg_print(format, ...) \
   do { \
   fprintf(stderr, "NIN(test):%3d: " format " (%s:%d)\n", my_rank, ## __VA_ARGS__, __FILE__, __LINE__); \
   } while (0)
 
-#define nin_test_dbgi_print(rank, format, ...) \
+#define mst_test_dbgi_print(rank, format, ...) \
   do { \
   if (rank == 0) { \
   fprintf(stderr, "NIN(test):%3d: " format " (%s:%d)\n", my_rank, ## __VA_ARGS__, __FILE__, __LINE__); \

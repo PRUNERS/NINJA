@@ -3,7 +3,7 @@
 #include <unistd.h>
 #include <sys/time.h>
 
-#include "nin_test_util.h"
+#include "mst_test_util.h"
 
 double get_time(void)
 {
