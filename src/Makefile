@@ -25,6 +25,7 @@ mor_a_LIBS =	libmor.a
 mor_so_LIBS =	libmor.so
 
 ninj_SRCS =    $(SRC_DIR)/ninj.cpp \
+		$(SRC_DIR)/ninj_fc.cpp \
 		$(SRC_DIR)/ninj_thread.cpp \
 		$(SRC_DIR)/nin_util.cpp \
 		$(SRC_DIR)/nin_mpi_util.cpp \
@@ -112,7 +113,7 @@ clean:
 	-for bin in $(PROGRAMS); do ( rm  $(BIN_DIR)/$$bin ); done
 	-rm -rf $(OBJS) $(DEPS) $(LIBS) $(PROGRAMS) 
 
-.PHONY: clean_core
-clean_core:
+.PHONY: cleanc
+cleanc:
 	-rm -rf *.core
 

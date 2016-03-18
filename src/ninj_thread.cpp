@@ -18,6 +18,8 @@ map<double, nin_delayed_send_request*> ordered_delayed_send_request_map;
 int debug_int  = -1;
 
 
+
+
 static void add_delayed_send_request(nin_delayed_send_request *ds_req)
 {
   double send_time = ds_req->send_time;
@@ -37,11 +39,19 @@ void* run_delayed_send(void *args)
   map<double, nin_delayed_send_request*>::iterator it;
   int is_erased;
   double send_time;
+  struct timespec stval;
+  double a, b;
+  stval.tv_sec = 0;
+  stval.tv_nsec = 1;
   while (1) {
     /*Wait until delayed send request enqueued*/
     if (ordered_delayed_send_request_map.size() == 0) {
       while ((new_ds_req = nin_thread_input.dequeue()) == NULL) {
-	usleep(1);
+	//	a = NIN_get_time();
+	nanosleep(&stval, NULL);//usleep(1);
+	//	clock_nanosleep(CLOCK_REALTIME, 0, &stval, NULL);
+	//	b = NIN_get_time();
+	//	NIN_DBG("%f", b - a);
       }
       send_time = new_ds_req->send_time;
       add_delayed_send_request(new_ds_req);
@@ -60,13 +70,12 @@ void* run_delayed_send(void *args)
 	  front_ds_req = it->second;
 	}
       }
-      usleep(1);
+      nanosleep(&stval, NULL);//usleep(1);
     }
       
     if (front_ds_req->is_final) return NULL;
 
     /*Then, start expired send request*/
-
     PMPI_WRAP(ret = PMPI_Start(&front_ds_req->request), "MPI_Start");
     front_ds_req->is_started = 1;
     //    nin_thread_output.enqueue(front_ds_req);

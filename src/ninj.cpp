@@ -12,6 +12,7 @@
 #include <unordered_map>
 
 #include "ninj_thread.h"
+#include "ninj_fc.h"
 #include "nin_util.h"
 #include "nin_mpi_util.h"
 
@@ -55,33 +56,13 @@ _EXTERN_C_ void pmpi_init_thread__(MPI_Fint *required, MPI_Fint *provided, MPI_F
 #define NIN_REQUEST_STARTED     (1)
 
 
-
 using namespace std;
 
 
 pthread_t nin_nosie_thread;
 static unordered_map<MPI_Request, nin_delayed_send_request*> pending_send_request_to_ds_request_umap;
 static unordered_map<MPI_Request, nin_delayed_send_request*> completed_send_request_to_ds_request_umap;
-int counter = 0;
-int counter1 = 0;
 
-static double nin_get_next_delay(int dest)
-{
-  int delay_sec;
-  //  return 1000.0 / 1e6;
-  delay_sec = NIN_get_rand(10000000);
-  if (delay_sec > 2) {
-    return 0;
-  } else {
-    NIN_DBG("Atachk ! dest: %d", dest);
-    return 100.0 / 1e6;
-  }
-
-  //   return 1000.0 / 1e6;
-  //
-  //  return 1.0 / 1e6;
-  //  return NIN_get_rand(100)/1.0e6;
-}
 
 static void nin_init(int *argc, char ***argv)
 {
@@ -89,8 +70,9 @@ static void nin_init(int *argc, char ***argv)
   NIN_Init();
   signal(SIGSEGV, SIG_DFL);
   ret = pthread_create(&nin_nosie_thread, NULL, run_delayed_send, NULL);
-
   NIN_init_ndrand();
+  ninj_fc_init();
+
 
   return;
 }
@@ -170,21 +152,22 @@ _EXTERN_C_ int MPI_Isend(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_
     int _wrap_py_return_val = 0;
     int msg_size;
     nin_delayed_send_request *ds_req;
-    double delay;
+    int delay_flag;
+    double send_time;
 
 
-    delay = nin_get_next_delay(arg_3);
-    //    NIN_DBG("delay: %f", delay);
-    if (delay == 0) {
-      //      NIN_DBG("delay: %f", delay);
+    PMPI_WRAP(PMPI_Type_size(arg_2, &msg_size), "MPI_Type_size");
+    msg_size = msg_size * arg_1;
+    ninj_fc_report_send((size_t)msg_size);
+    ninj_fc_get_delay(arg_3, &delay_flag, &send_time);
+    if (!delay_flag) {
       /*TODO: Avoid this message to rank X from overtaking the past messages to rank X */
       PMPI_WRAP(_wrap_py_return_val = PMPI_Isend(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6), __func__);
       return _wrap_py_return_val;
-    }    
+    }   
 
     ds_req = (nin_delayed_send_request*)malloc(sizeof(nin_delayed_send_request));
-    PMPI_WRAP(PMPI_Type_size(arg_2, &msg_size), "MPI_Type_size");
-    msg_size = msg_size * arg_1;
+
     if (msg_size <= NIN_EAGER_LIMIT) {
       ds_req->send_buff = malloc(msg_size);
       if (ds_req->send_buff == NULL) {
@@ -202,20 +185,16 @@ _EXTERN_C_ int MPI_Isend(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_
 
     PMPI_WRAP(_wrap_py_return_val = PMPI_Send_init(ds_req->send_buff, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6), "MPI_Send_init");
     
-
     ds_req->is_started = 0;
     ds_req->request = *arg_6;
-    ds_req->send_time = NIN_get_time() + delay;
+    ds_req->send_time = send_time;
     ds_req->is_final = 0;
     pending_send_request_to_ds_request_umap[*arg_6] = ds_req;
     nin_thread_input.enqueue(ds_req);
-
-    usleep(50);
-  //    NIN_DBG("enqueu: %f: dest: %d: req: %p", ds_req->send_time, arg_3, *arg_6);
-
-	//    PMPI_WRAP(_wrap_py_return_val = PMPI_Start(arg_6), "MPI_Start");
-
-	return _wrap_py_return_val;
+    
+    //    NIN_DBG("enqueu: %f: dest: %d: req: %p", ds_req->send_time, arg_3, *arg_6);
+    //    PMPI_WRAP(_wrap_py_return_val = PMPI_Start(arg_6), "MPI_Start");
+    return _wrap_py_return_val;
 }
 
 /* ================== C Wrappers for MPI_Issend ================== */
@@ -1570,8 +1549,7 @@ _EXTERN_C_ int PMPI_Init(int *arg_0, char ***arg_1);
 _EXTERN_C_ int MPI_Init(int *arg_0, char ***arg_1) { 
     int _wrap_py_return_val = 0;
     int required = MPI_THREAD_SERIALIZED, provided;
-    PMPI_WRAP(_wrap_py_return_val = PMPI_Init_thread(arg_0, arg_1, required, &provided), __func__);
-    nin_init(arg_0, arg_1);
+    _wrap_py_return_val = MPI_Init_thread(arg_0, arg_1, required, &provided);
     return _wrap_py_return_val;
 }
 
@@ -1580,12 +1558,13 @@ _EXTERN_C_ int PMPI_Init_thread(int *arg_0, char ***arg_1, int arg_2, int *arg_3
 _EXTERN_C_ int MPI_Init_thread(int *arg_0, char ***arg_1, int arg_2, int *arg_3) { 
     int _wrap_py_return_val = 0;
     int required = MPI_THREAD_SERIALIZED;
+
     if (required < arg_2) {
       required = arg_2;
     }
     PMPI_WRAP(_wrap_py_return_val = PMPI_Init_thread(arg_0, arg_1, arg_2, arg_3), __func__);
     if (MPI_THREAD_SERIALIZED > *arg_3) {
-      NIN_DBG("NIN requires MPI_THREAD_SERIALIZED at least");
+      NIN_DBG("NIN requires MPI_THREAD_SERIALIZED or higher");
     }
     nin_init(arg_0, arg_1);
     return _wrap_py_return_val;
@@ -1626,8 +1605,6 @@ _EXTERN_C_ int MPI_Irecv(void *arg_0, int arg_1, MPI_Datatype arg_2, int arg_3, 
     //    NIN_DBG("%s ended", __func__);
     return _wrap_py_return_val;
 }
-
-
 
 #ifdef ENABLE_DEPRECATED_FUNC
 /* ================== C Wrappers for MPI_Keyval_create ================== */

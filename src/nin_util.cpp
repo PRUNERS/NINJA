@@ -17,8 +17,6 @@ void NIN_Init()
 
 double NIN_Wtime()
 {
-  NIN_DBG("This is not signal safe !");
-  exit(1);
   return MPI_Wtime() * 1e6;
 }
 
