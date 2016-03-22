@@ -31,7 +31,7 @@ double NIN_get_time()
 
 int NIN_init_ndrand()
 {
-  srand((int)NIN_get_time());
+  srand((int)(NIN_get_time() * 1000000 + nin_my_rank));
   return 0;  
 }
 

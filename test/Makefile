@@ -15,15 +15,23 @@ mst_test_units_OBJS = $(mst_test_units_SRCS:%.c=%.o)
 mst_test_units_DEPS = $(mst_test_units_SRCS:%.c=%.d)
 mst_test_units_PROGRAM = mst_test_units
 
+nin_test_matching_race_SRCS = nin_test_matching_race.c mst_test_util.c
+nin_test_matching_race_OBJS = $(nin_test_matching_race_SRCS:%.c=%.o)
+nin_test_matching_race_DEPS = $(nin_test_matching_race_SRCS:%.c=%.d)
+nin_test_matching_race_PROGRAM = nin_test_matching_race
+
 PROGRAMS= $(mst_test_pingpong_PROGRAM) \
 	 $(mst_test_units_PROGRAM) \
-	 $(mst_test_hypre_parasails_PROGRAM) 
+	 $(mst_test_hypre_parasails_PROGRAM) \
+	 $(nin_test_matching_race_PROGRAM) \
 OBJS= $(mst_test_pingpong_OBJS) \
 	 $(mst_test_hypre_parasails_OBJS) \
-	 $(mst_test_units_OBJS) 
+	 $(mst_test_units_OBJS) \
+	 $(nin_test_matching_race_OBJS) 
 DEPS= $(mst_test_pingpong_DEPS) \
 	$(mst_test_hypre_parasails_DEPS) \
-	$(mst_test_units_DEPS) 
+	$(mst_test_units_DEPS) \
+	$(nin_test_matching_race_DEPS) 
 
 #$@: target name
 #$<: first dependent file
@@ -47,6 +55,9 @@ $(mst_test_hypre_parasails_PROGRAM): $(mst_test_hypre_parasails_OBJS)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
 
 $(mst_test_units_PROGRAM): $(mst_test_units_OBJS)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
+
+$(nin_test_matching_race_PROGRAM): $(nin_test_matching_race_OBJS)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
 
 

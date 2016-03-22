@@ -10,15 +10,27 @@
 
 using namespace std;
 
-pthread_mutex_t ninj_thread_mpi_mutex = PTHREAD_MUTEX_INITIALIZER;
+//pthread_mutex_t ninj_thread_mpi_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t ninj_thread_mpi_mutex = PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP;
 
 nin_spsc_queue<nin_delayed_send_request*> nin_thread_input, nin_thread_output;
 map<double, nin_delayed_send_request*> ordered_delayed_send_request_map;
 
 int debug_int  = -1;
 
+struct timespec wait;
 
-
+static void sleep_wait()
+{
+  //  double a = NIN_get_time();
+  //  clock_gettime(CLOCK_MONOTONIC, &wait);
+  //  wait.tv_nsec += 1;//10 * 1000;// (us % (1000 * 1000)) * 1000; 
+  //  clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &wait, NULL);
+  usleep(1);
+  //  sleep(11110);
+  //  double b = NIN_get_time();
+  //  NIN_DBG("%f", b - a);
+}
 
 static void add_delayed_send_request(nin_delayed_send_request *ds_req)
 {
@@ -47,11 +59,7 @@ void* run_delayed_send(void *args)
     /*Wait until delayed send request enqueued*/
     if (ordered_delayed_send_request_map.size() == 0) {
       while ((new_ds_req = nin_thread_input.dequeue()) == NULL) {
-	//	a = NIN_get_time();
-	nanosleep(&stval, NULL);//usleep(1);
-	//	clock_nanosleep(CLOCK_REALTIME, 0, &stval, NULL);
-	//	b = NIN_get_time();
-	//	NIN_DBG("%f", b - a);
+	sleep_wait();
       }
       send_time = new_ds_req->send_time;
       add_delayed_send_request(new_ds_req);
@@ -70,7 +78,7 @@ void* run_delayed_send(void *args)
 	  front_ds_req = it->second;
 	}
       }
-      nanosleep(&stval, NULL);//usleep(1);
+      sleep_wait();
     }
       
     if (front_ds_req->is_final) return NULL;

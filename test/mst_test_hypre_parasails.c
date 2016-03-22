@@ -57,13 +57,12 @@ double s, e;
 #define PRINT_TIME(func,name) \
   do { \
     func; \
-    do_noise_work(1, get_rand(1000) % 10000 == 0);	\
   } while(0)
 #endif
 
 
 
-#define ENABLE_HANG
+//#define ENABLE_HANG
 
 #define ROW_REQP_TAG        221
 #ifdef ENABLE_HANG
@@ -690,9 +689,10 @@ int main(int argc, char* argv[])
 
   //  int print_rank = 0;
   //  for (i = 0; i < 50 ;i++) {
+  double start = get_time();
   for (i = 0; i< num_loop ;i++) {
     //    if (i % 100000 == 0) {
-    if (i % 1000 == 0) {
+    if (1) {
       //      if (my_rank == print_rank++ % comm_size) {
       if (my_rank == 0) {
 	//	dprintf(fd, "loop %d\n", i);
@@ -701,9 +701,13 @@ int main(int argc, char* argv[])
       }
     }
     ParaSailsSetupPattern(0, 1);
+    sleep(1);
     ParaSailsSetupValues(0);
+    MPI_Pcontrol(1);
   }
+  double end = get_time();
   if (my_rank == 0) {
+    fprintf(stderr, "Time: %f\n", end - start);
     close(fd);
   }
 

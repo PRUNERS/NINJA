@@ -22,7 +22,7 @@ int init_rand(int seed)
 
 int init_ndrand() 
 {
-  srand((int)get_time());
+  srand((int)(get_time() * 1000000));
   return 0;
 }
 

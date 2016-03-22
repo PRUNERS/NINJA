@@ -223,6 +223,7 @@ static void alltoall_record(vector<send_trace_t*> &rtrace_vec)
   //   MST_DBG("index: %d: scount: %d, soffset: %d", i, sendcounts[i], sdispls[i]);
   // }
   // for (int i = 0; i < commworld_size; i++) {
+
   //   MST_DBG("index: %d: rcount: %d, roffset: %d", i, recvcounts[i], rdispls[i]);
   // }
   // MST_DBG("stcount: %d, rtcount: %d", stotal_count, rtotal_count);

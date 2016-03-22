@@ -9,6 +9,13 @@
 #include "ninj_fc.h"
 #include "nin_util.h"
 
+#define NIN_CONF_PATTERN       "NIN_PATTERN"
+#define NIN_CONF_PATTERN_FREE  (0)
+#define NIN_CONF_PATTERN_RAND  (1)
+#define NIN_CONF_PATTERN_MODEL (2)
+#define NIN_CONF_RAND_RATIO    "NIN_RAND_RATIO"
+#define NIN_CONF_RAND_DELAY    "NIN_RAND_DELAY"
+
 #define NINJ_FC_QUEUED_PACKET_NUM(head, tail) \
   (((tail - head) + NINJ_FC_RING_BUFF_SIZE) % NINJ_FC_RING_BUFF_SIZE)
 
@@ -26,14 +33,23 @@ using namespace std;
 static unordered_map<int, double> rank_to_last_send_time_umap;
 static double *ninj_fc_ring_buffer;
 static int ninj_fc_ring_buffer_head_index = 0, ninj_fc_ring_buffer_tail_index = 0;
+static int ninj_fc_rb_max_length = -1, ninj_fc_rb_gmax_length = -1;
 static timeval ninj_fc_base_time;
 static double ninj_fc_mtu_transmit_time_usec;
 
+/*Configuration: common*/
+static int ninj_fc_pattern = NIN_CONF_PATTERN_MODEL;
+/*Configuration variables for random noise*/
+static double ninj_fc_rand_ratio;
+static int ninj_fc_rand_delay_usec;
+
+/*Configuration variables for model noise*/
 static int ninj_fc_mtu_size = NINJ_FC_MTU;
 static int ninj_fc_queue_capacity = NINJ_FC_QUEUE_CAPACITY;
 static double ninj_fc_model_packet_latency_usec    = NINJ_FC_MODEL_PACKET_LATENCY;
 static double ninj_fc_model_packet_throughput_bpusec = NINJ_FC_MODEL_PACKET_THROUGHPUT;
-static double ninj_fc_queue_length_threshold = 4;
+static int ninj_fc_queue_length_threshold = 4;
+
 
 static int ninj_fc_delay_adjustment_for_ordered_send(int dest, int delay_flag, double current_time, double *send_time)
 {  
@@ -58,14 +74,13 @@ static void ninj_fc_get_delay_random(int dest, int *delay_flag, double *send_tim
   double delay_sec;
   int is_delayed, is_adjusted;
   double current_time   = NIN_get_time();
-  is_delayed = NIN_get_rand(1000000) <= 2;
-  is_delayed = 1;
+  is_delayed = NIN_get_rand((int)(100/ninj_fc_rand_ratio)) == 0;
   if (!is_delayed) {
     *delay_flag = 0;
     *send_time = current_time;
   } else {
     *delay_flag = 1;
-    *send_time = current_time + 100.0 / 1e6;
+    *send_time = current_time + ninj_fc_rand_delay_usec / 1e6;
   }
   is_adjusted = ninj_fc_delay_adjustment_for_ordered_send(dest, *delay_flag, current_time, send_time);
   if (is_adjusted) *delay_flag = 1;
@@ -79,7 +94,8 @@ static void ninj_fc_get_delay_const(int dest, int *delay_flag, double *send_time
   int is_delayed, is_adjusted;
   double current_time   = NIN_get_time();
   *delay_flag = 1;
-  *send_time = current_time + 1 / 1e6;
+  *send_time = current_time + 100000 / 1e6;
+  NIN_DBG("delay !!");
   is_adjusted = ninj_fc_delay_adjustment_for_ordered_send(dest, *delay_flag, current_time, send_time);
   if(is_adjusted) *delay_flag = 1;
   return;
@@ -120,7 +136,11 @@ static void ninj_fc_get_delay_model(int dest, int *delay_flag, double *send_time
   if (enqueued_packet_num >= ninj_fc_queue_length_threshold) {
     *delay_flag = 1;
     *send_time = ninj_fc_get_time_of_packet_transmit(enqueued_packet_num - ninj_fc_queue_length_threshold + 1);
-    NIN_DBG("delayed send time: %f", *send_time - current_time);
+  }
+
+  if (enqueued_packet_num > ninj_fc_rb_max_length) {
+    /*For model tuning*/
+    ninj_fc_rb_max_length = enqueued_packet_num;
   }
   is_adjusted = ninj_fc_delay_adjustment_for_ordered_send(dest, *delay_flag, current_time, send_time);
   if(is_adjusted) *delay_flag = 1;
@@ -144,6 +164,7 @@ static void ninj_fc_packet_transmit_model(int msgsize, int *mtu_packet_num, doub
 
 void ninj_fc_init()
 {
+  char *env;
   ninj_fc_ring_buffer = (double*)malloc(sizeof(double) * NINJ_FC_RING_BUFF_SIZE);
   for (int i = 0; i < NINJ_FC_RING_BUFF_SIZE; i++) {
     ninj_fc_ring_buffer[i] = 0;
@@ -151,14 +172,71 @@ void ninj_fc_init()
   ninj_fc_ring_buffer_head_index = 0;
   ninj_fc_ring_buffer_tail_index = 0;
   ninj_fc_mtu_transmit_time_usec = NINJ_FC_PACKET_TRANSMIT_MODEL(ninj_fc_mtu_size);
+
+  if (NULL == (env = getenv(NIN_CONF_PATTERN))) {
+    NIN_DBGI(0, "getenv failed: Please specify %s (%s:%s:%d)", NIN_CONF_PATTERN, __FILE__, __func__, __LINE__);
+    exit(0);
+  }
+  ninj_fc_pattern = atoi(env);
+  NIN_DBGI(0, " NIN_PATTERN: %d", ninj_fc_pattern);
+  if (ninj_fc_pattern == NIN_CONF_PATTERN_RAND) {
+    if (NULL == (env = getenv(NIN_CONF_RAND_RATIO))) {
+      NIN_DBGI(0, "getenv failed: Please specify %s (%s:%s:%d)", NIN_CONF_RAND_RATIO, __FILE__, __func__, __LINE__);
+      exit(0);
+    }
+    ninj_fc_rand_ratio = atof(env);
+    if (ninj_fc_rand_ratio <= 0 || 100 < ninj_fc_rand_ratio) {
+      NIN_DBGI(0, "getenv failed: Please specify (0 >) %s (<= 100) (%s:%s:%d)", NIN_CONF_RAND_DELAY, __FILE__, __func__, __LINE__);
+      exit(0);
+    }
+    NIN_DBGI(0, " NIN_RAND_RATIO: %f %% of Send will be delayed", ninj_fc_rand_ratio);
+    if (NULL == (env = getenv(NIN_CONF_RAND_DELAY))) {
+      NIN_DBGI(0, "getenv failed: Please specify %s (%s:%s:%d)", NIN_CONF_RAND_DELAY, __FILE__, __func__, __LINE__);
+      exit(0);
+    }
+    ninj_fc_rand_delay_usec = atof(env);
+
+    NIN_DBGI(0, " NIN_RAND_DELAY: %d usec", ninj_fc_rand_delay_usec);
+  }
   return;
 }
 
 void ninj_fc_get_delay(int dest, int *delay_flag, double *send_time)
 {
-  ninj_fc_get_delay_const(dest, delay_flag, send_time);
-  //  ninj_fc_get_delay_random(dest, delay_flag, send_time);
-  // ninj_fc_get_delay_model(dest, delay_flag, send_time);
+  *delay_flag = 0;
+  switch(ninj_fc_pattern) {
+  case NIN_CONF_PATTERN_FREE:
+    /*Do nothing*/
+    break;
+  case NIN_CONF_PATTERN_RAND:
+    ninj_fc_get_delay_random(dest, delay_flag, send_time);
+    break;
+  case NIN_CONF_PATTERN_MODEL:
+    ninj_fc_get_delay_model(dest, delay_flag, send_time);
+    break;
+  default:
+    NIN_DBG("No such NIN_PATTERN: %d", ninj_fc_pattern);
+    exit(0);
+    break;
+  }
+  //  ninj_fc_get_delay_const(dest, delay_flag, send_time);
+
+
+  // if (*delay_flag) {
+  //   NIN_DBG("delay !");
+  // }
+  return;
+}
+
+void ninj_fc_do_model_tuning()
+{
+  ninj_fc_queue_length_threshold--;
+  if (ninj_fc_rb_gmax_length < 0 || ninj_fc_queue_length_threshold < 0) {
+    MPI_Allreduce(&ninj_fc_rb_max_length, &ninj_fc_rb_gmax_length, 1, MPI_INT, MPI_MAX, MPI_COMM_WORLD);
+    ninj_fc_queue_length_threshold = ninj_fc_rb_gmax_length;
+    /*K-means*/
+  }
+  NIN_DBGI(0, "threshold: %d", ninj_fc_queue_length_threshold);
   return;
 }
 

@@ -62,6 +62,7 @@ using namespace std;
 pthread_t nin_nosie_thread;
 static unordered_map<MPI_Request, nin_delayed_send_request*> pending_send_request_to_ds_request_umap;
 static unordered_map<MPI_Request, nin_delayed_send_request*> completed_send_request_to_ds_request_umap;
+int counter=0;
 
 
 static void nin_init(int *argc, char ***argv)
@@ -138,14 +139,98 @@ static int nin_is_all_started(int count, MPI_Request *requests)
   return NIN_REQUEST_STARTED;
 }
 
+static size_t ninj_get_delay(int count, MPI_Datatype datatype, int src, int *delay_flag, double *send_time)
+{
+  size_t msg_size;
+  int dt_size;
+  PMPI_WRAP(PMPI_Type_size(datatype, &dt_size), "MPI_Type_size");
+  msg_size = dt_size * count;
+  ninj_fc_report_send((size_t)msg_size);
+  ninj_fc_get_delay(src, delay_flag, send_time);
+  return msg_size;
+}
+
+static void ninj_post_delayed_start(void* send_buffer, int is_buffered, int dest, int tag, MPI_Request *request, double send_time)
+{
+  nin_delayed_send_request *ds_req;
+
+  ds_req = (nin_delayed_send_request*)malloc(sizeof(nin_delayed_send_request));
+  ds_req->send_buff = send_buffer;
+  ds_req->is_buffered = is_buffered;
+  ds_req->dest = dest;
+  ds_req->tag = tag;
+  ds_req->is_started = 0;
+  ds_req->request = *request;
+  ds_req->send_time = send_time;
+  ds_req->is_final = 0;
+
+  pending_send_request_to_ds_request_umap[*request] = ds_req;
+  nin_thread_input.enqueue(ds_req);
+  return;
+}
+
+static void ninj_get_send_buffer(size_t msg_size, nin_mpi_const void* old_send_buffer, void** new_send_buffer, int *is_buffered)
+{
+  if (msg_size <= NIN_EAGER_LIMIT) {
+    *new_send_buffer = malloc(msg_size);
+    if (*new_send_buffer == NULL) {
+      NIN_DBG("malloc failed");
+      exit(1);
+    }
+    memcpy(*new_send_buffer, old_send_buffer, msg_size);
+    *is_buffered = 1;
+  } else {
+    *new_send_buffer = (void*)old_send_buffer;
+    *is_buffered = 0;
+  }
+  return;
+}
+
+
 /* ================== C Wrappers for MPI_Irsend ================== */
 _EXTERN_C_ int PMPI_Irsend(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, int arg_3, int arg_4, MPI_Comm arg_5, MPI_Request *arg_6);
-_EXTERN_C_ int MPI_Irsend(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, int arg_3, int arg_4, MPI_Comm arg_5, MPI_Request *arg_6) { 
+_EXTERN_C_ int MPI_Irsend(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, int arg_3, int arg_4, MPI_Comm arg_5, MPI_Request *arg_6)
+{ 
     int _wrap_py_return_val = 0;
-    PMPI_WRAP(_wrap_py_return_val = PMPI_Irsend(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6), __func__);
+    size_t msg_size;
+    int delay_flag;
+    double send_time;
+    void* send_buffer = NULL;
+    int is_buffered;
+
+    msg_size =  ninj_get_delay(arg_1, arg_2, arg_3, &delay_flag, &send_time);
+    if (!delay_flag) {
+      PMPI_WRAP(_wrap_py_return_val = PMPI_Irsend(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6), __func__);
+      return _wrap_py_return_val;
+    }
+    ninj_get_send_buffer(msg_size, arg_0, &send_buffer, &is_buffered);
+    PMPI_WRAP(_wrap_py_return_val = PMPI_Rsend_init(send_buffer, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6), "MPI_Send_init");
+    ninj_post_delayed_start(send_buffer, is_buffered, arg_3, arg_4, arg_6, send_time);
     return _wrap_py_return_val;
 }
 
+/* ================== C Wrappers for MPI_Isend ================== */
+_EXTERN_C_ int PMPI_Isend(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, int arg_3, int arg_4, MPI_Comm arg_5, MPI_Request *arg_6);
+_EXTERN_C_ int MPI_Isend(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, int arg_3, int arg_4, MPI_Comm arg_5, MPI_Request *arg_6) { 
+    int _wrap_py_return_val = 0;
+    size_t msg_size;
+    int delay_flag;
+    double send_time;
+    void* send_buffer = NULL;
+    int is_buffered;
+    msg_size =  ninj_get_delay(arg_1, arg_2, arg_3, &delay_flag, &send_time);
+    if (!delay_flag) {
+      PMPI_WRAP(_wrap_py_return_val = PMPI_Isend(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6), __func__);
+      return _wrap_py_return_val;
+    }
+    ninj_get_send_buffer(msg_size, arg_0, &send_buffer, &is_buffered);
+    PMPI_WRAP(_wrap_py_return_val = PMPI_Send_init(send_buffer, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6), "MPI_Send_init");
+    ninj_post_delayed_start(send_buffer, is_buffered, arg_3, arg_4, arg_6, send_time);
+    return _wrap_py_return_val;
+}
+
+
+#if 0
 /* ================== C Wrappers for MPI_Isend ================== */
 _EXTERN_C_ int PMPI_Isend(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, int arg_3, int arg_4, MPI_Comm arg_5, MPI_Request *arg_6);
 _EXTERN_C_ int MPI_Isend(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, int arg_3, int arg_4, MPI_Comm arg_5, MPI_Request *arg_6) { 
@@ -155,7 +240,6 @@ _EXTERN_C_ int MPI_Isend(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_
     int delay_flag;
     double send_time;
 
-
     PMPI_WRAP(PMPI_Type_size(arg_2, &msg_size), "MPI_Type_size");
     msg_size = msg_size * arg_1;
     ninj_fc_report_send((size_t)msg_size);
@@ -164,7 +248,7 @@ _EXTERN_C_ int MPI_Isend(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_
       /*TODO: Avoid this message to rank X from overtaking the past messages to rank X */
       PMPI_WRAP(_wrap_py_return_val = PMPI_Isend(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6), __func__);
       return _wrap_py_return_val;
-    }   
+    }
 
     ds_req = (nin_delayed_send_request*)malloc(sizeof(nin_delayed_send_request));
 
@@ -196,12 +280,26 @@ _EXTERN_C_ int MPI_Isend(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_
     //    PMPI_WRAP(_wrap_py_return_val = PMPI_Start(arg_6), "MPI_Start");
     return _wrap_py_return_val;
 }
+#endif
 
 /* ================== C Wrappers for MPI_Issend ================== */
 _EXTERN_C_ int PMPI_Issend(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, int arg_3, int arg_4, MPI_Comm arg_5, MPI_Request *arg_6);
 _EXTERN_C_ int MPI_Issend(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, int arg_3, int arg_4, MPI_Comm arg_5, MPI_Request *arg_6) { 
     int _wrap_py_return_val = 0;
-    PMPI_WRAP(_wrap_py_return_val = PMPI_Issend(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6), __func__);
+    size_t msg_size;
+    int delay_flag;
+    double send_time;
+    void* send_buffer = NULL;
+    int is_buffered;
+
+    msg_size =  ninj_get_delay(arg_1, arg_2, arg_3, &delay_flag, &send_time);
+    if (!delay_flag) {
+      PMPI_WRAP(_wrap_py_return_val = PMPI_Issend(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6), __func__);
+      return _wrap_py_return_val;
+    }
+    ninj_get_send_buffer(msg_size, arg_0, &send_buffer, &is_buffered);
+    PMPI_WRAP(_wrap_py_return_val = PMPI_Ssend_init(send_buffer, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6), "MPI_Send_init");
+    ninj_post_delayed_start(send_buffer, is_buffered, arg_3, arg_4, arg_6, send_time);
     return _wrap_py_return_val;
 }
 
@@ -209,7 +307,20 @@ _EXTERN_C_ int MPI_Issend(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg
 _EXTERN_C_ int PMPI_Ibsend(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, int arg_3, int arg_4, MPI_Comm arg_5, MPI_Request *arg_6);
 _EXTERN_C_ int MPI_Ibsend(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, int arg_3, int arg_4, MPI_Comm arg_5, MPI_Request *arg_6) { 
     int _wrap_py_return_val = 0;
-    PMPI_WRAP(_wrap_py_return_val = PMPI_Ibsend(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6), __func__);
+    size_t msg_size;
+    int delay_flag;
+    double send_time;
+    void* send_buffer = NULL;
+    int is_buffered;
+
+    msg_size =  ninj_get_delay(arg_1, arg_2, arg_3, &delay_flag, &send_time);
+    if (!delay_flag) {
+      PMPI_WRAP(_wrap_py_return_val = PMPI_Ibsend(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6), __func__);
+      return _wrap_py_return_val;
+    }
+    ninj_get_send_buffer(msg_size, arg_0, &send_buffer, &is_buffered);
+    PMPI_WRAP(_wrap_py_return_val = PMPI_Bsend_init(send_buffer, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6), "MPI_Send_init");
+    ninj_post_delayed_start(send_buffer, is_buffered, arg_3, arg_4, arg_6, send_time);
     return _wrap_py_return_val;
 }
 
@@ -217,15 +328,10 @@ _EXTERN_C_ int MPI_Ibsend(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg
 _EXTERN_C_ int PMPI_Bsend(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, int arg_3, int arg_4, MPI_Comm arg_5);
 _EXTERN_C_ int MPI_Bsend(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, int arg_3, int arg_4, MPI_Comm arg_5) { 
     int _wrap_py_return_val = 0;
-    PMPI_WRAP(_wrap_py_return_val = PMPI_Bsend(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5), __func__);
-    return _wrap_py_return_val;
-}
-
-/* ================== C Wrappers for MPI_Bsend_init ================== */
-_EXTERN_C_ int PMPI_Bsend_init(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, int arg_3, int arg_4, MPI_Comm arg_5, MPI_Request *arg_6);
-_EXTERN_C_ int MPI_Bsend_init(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, int arg_3, int arg_4, MPI_Comm arg_5, MPI_Request *arg_6) { 
-    int _wrap_py_return_val = 0;
-    PMPI_WRAP(_wrap_py_return_val = PMPI_Bsend_init(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6), __func__);
+    MPI_Request req;
+    MPI_Ibsend(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, &req);
+    MPI_Wait(&req, MPI_STATUS_IGNORE);
+    //    PMPI_WRAP(_wrap_py_return_val = PMPI_Bsend(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5), __func__);
     return _wrap_py_return_val;
 }
 
@@ -234,17 +340,13 @@ _EXTERN_C_ int MPI_Bsend_init(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype
 _EXTERN_C_ int PMPI_Rsend(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, int arg_3, int arg_4, MPI_Comm arg_5);
 _EXTERN_C_ int MPI_Rsend(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, int arg_3, int arg_4, MPI_Comm arg_5) { 
     int _wrap_py_return_val = 0;
-    PMPI_WRAP(_wrap_py_return_val = PMPI_Rsend(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5), __func__);
+    MPI_Request req;
+    MPI_Irsend(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, &req);
+    MPI_Wait(&req, MPI_STATUS_IGNORE);
+    //    PMPI_WRAP(_wrap_py_return_val = PMPI_Rsend(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5), __func__);
     return _wrap_py_return_val;
 }
 
-/* ================== C Wrappers for MPI_Rsend_init ================== */
-_EXTERN_C_ int PMPI_Rsend_init(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, int arg_3, int arg_4, MPI_Comm arg_5, MPI_Request *arg_6);
-_EXTERN_C_ int MPI_Rsend_init(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, int arg_3, int arg_4, MPI_Comm arg_5, MPI_Request *arg_6) { 
-    int _wrap_py_return_val = 0;
-    PMPI_WRAP(_wrap_py_return_val = PMPI_Rsend_init(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6), __func__);
-    return _wrap_py_return_val;
-}
 
 /* ================== C Wrappers for MPI_Send ================== */
 _EXTERN_C_ int PMPI_Send(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, int arg_3, int arg_4, MPI_Comm arg_5);
@@ -257,6 +359,34 @@ _EXTERN_C_ int MPI_Send(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2
     return _wrap_py_return_val;
 }
 
+/* ================== C Wrappers for MPI_Ssend ================== */
+_EXTERN_C_ int PMPI_Ssend(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, int arg_3, int arg_4, MPI_Comm arg_5);
+_EXTERN_C_ int MPI_Ssend(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, int arg_3, int arg_4, MPI_Comm arg_5) { 
+    int _wrap_py_return_val = 0;
+    MPI_Request req;
+    MPI_Issend(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, &req);
+    MPI_Wait(&req, MPI_STATUS_IGNORE);
+    //    PMPI_WRAP(_wrap_py_return_val = PMPI_Ssend(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5), __func__);
+    return _wrap_py_return_val;
+}
+
+
+
+/* ================== C Wrappers for MPI_Bsend_init ================== */
+_EXTERN_C_ int PMPI_Bsend_init(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, int arg_3, int arg_4, MPI_Comm arg_5, MPI_Request *arg_6);
+_EXTERN_C_ int MPI_Bsend_init(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, int arg_3, int arg_4, MPI_Comm arg_5, MPI_Request *arg_6) { 
+    int _wrap_py_return_val = 0;
+    PMPI_WRAP(_wrap_py_return_val = PMPI_Bsend_init(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6), __func__);
+    return _wrap_py_return_val;
+}
+
+/* ================== C Wrappers for MPI_Rsend_init ================== */
+_EXTERN_C_ int PMPI_Rsend_init(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, int arg_3, int arg_4, MPI_Comm arg_5, MPI_Request *arg_6);
+_EXTERN_C_ int MPI_Rsend_init(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, int arg_3, int arg_4, MPI_Comm arg_5, MPI_Request *arg_6) { 
+    int _wrap_py_return_val = 0;
+    PMPI_WRAP(_wrap_py_return_val = PMPI_Rsend_init(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6), __func__);
+    return _wrap_py_return_val;
+}
 /* ================== C Wrappers for MPI_Send_init ================== */
 _EXTERN_C_ int PMPI_Send_init(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, int arg_3, int arg_4, MPI_Comm arg_5, MPI_Request *arg_6);
 _EXTERN_C_ int MPI_Send_init(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, int arg_3, int arg_4, MPI_Comm arg_5, MPI_Request *arg_6) { 
@@ -265,11 +395,28 @@ _EXTERN_C_ int MPI_Send_init(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype 
     return _wrap_py_return_val;
 }
 
+/* ================== C Wrappers for MPI_Ssend_init ================== */
+_EXTERN_C_ int PMPI_Ssend_init(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, int arg_3, int arg_4, MPI_Comm arg_5, MPI_Request *arg_6);
+_EXTERN_C_ int MPI_Ssend_init(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, int arg_3, int arg_4, MPI_Comm arg_5, MPI_Request *arg_6) { 
+    int _wrap_py_return_val = 0;
+    PMPI_WRAP(_wrap_py_return_val = PMPI_Ssend_init(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6), __func__);
+    return _wrap_py_return_val;
+}
+
+
+
+
+
 /* ================== C Wrappers for MPI_Sendrecv ================== */
 _EXTERN_C_ int PMPI_Sendrecv(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, int arg_3, int arg_4, void *arg_5, int arg_6, MPI_Datatype arg_7, int arg_8, int arg_9, MPI_Comm arg_10, MPI_Status *arg_11);
 _EXTERN_C_ int MPI_Sendrecv(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, int arg_3, int arg_4, void *arg_5, int arg_6, MPI_Datatype arg_7, int arg_8, int arg_9, MPI_Comm arg_10, MPI_Status *arg_11) { 
     int _wrap_py_return_val = 0;
-    PMPI_WRAP(_wrap_py_return_val = PMPI_Sendrecv(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8, arg_9, arg_10, arg_11), __func__);
+    MPI_Request send_request, recv_request;;
+    MPI_Isend(arg_0, arg_1, arg_2, arg_3, arg_4, arg_10, &send_request);
+    MPI_Irecv(arg_5, arg_6, arg_7, arg_8, arg_9, arg_10, &recv_request);
+    MPI_Wait(&send_request, MPI_STATUS_IGNORE);
+    MPI_Wait(&recv_request, arg_11);
+    //    PMPI_WRAP(_wrap_py_return_val = PMPI_Sendrecv(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8, arg_9, arg_10, arg_11), __func__);
     return _wrap_py_return_val;
 }
 
@@ -281,21 +428,7 @@ _EXTERN_C_ int MPI_Sendrecv_replace(void *arg_0, int arg_1, MPI_Datatype arg_2, 
     return _wrap_py_return_val;
 }
 
-/* ================== C Wrappers for MPI_Ssend ================== */
-_EXTERN_C_ int PMPI_Ssend(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, int arg_3, int arg_4, MPI_Comm arg_5);
-_EXTERN_C_ int MPI_Ssend(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, int arg_3, int arg_4, MPI_Comm arg_5) { 
-    int _wrap_py_return_val = 0;
-    PMPI_WRAP(_wrap_py_return_val = PMPI_Ssend(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5), __func__);
-    return _wrap_py_return_val;
-}
 
-/* ================== C Wrappers for MPI_Ssend_init ================== */
-_EXTERN_C_ int PMPI_Ssend_init(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, int arg_3, int arg_4, MPI_Comm arg_5, MPI_Request *arg_6);
-_EXTERN_C_ int MPI_Ssend_init(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, int arg_3, int arg_4, MPI_Comm arg_5, MPI_Request *arg_6) { 
-    int _wrap_py_return_val = 0;
-    PMPI_WRAP(_wrap_py_return_val = PMPI_Ssend_init(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6), __func__);
-    return _wrap_py_return_val;
-}
 
 /* ================== C Wrappers for MPI_Start ================== */
 _EXTERN_C_ int PMPI_Start(MPI_Request *arg_0);
@@ -385,26 +518,52 @@ _EXTERN_C_ int MPI_Waitall(int arg_0, MPI_Request *arg_1, MPI_Status *arg_2) {
 _EXTERN_C_ int PMPI_Testany(int arg_0, MPI_Request *arg_1, int *arg_2, int *arg_3, MPI_Status *arg_4);
 _EXTERN_C_ int MPI_Testany(int arg_0, MPI_Request *arg_1, int *arg_2, int *arg_3, MPI_Status *arg_4) { 
     int _wrap_py_return_val = 0;
-    PMPI_WRAP(_wrap_py_return_val = PMPI_Testany(arg_0, arg_1, arg_2, arg_3, arg_4), __func__);
+    int flag  = 0;
+    MPI_Status stat;
+    *arg_3 = 0;
+    for (int i = 0; i < arg_0; i++) {
+      MPI_Test(&arg_1[i], &flag, &stat);
+      if (flag) {
+	*arg_2 = i;
+	*arg_3 = 1;
+	if (arg_4 != MPI_STATUS_IGNORE) *arg_4 = stat;
+	break;
+      }
+    }
+    //    PMPI_WRAP(_wrap_py_return_val = PMPI_Testany(arg_0, arg_1, arg_2, arg_3, arg_4), __func__);
     return _wrap_py_return_val;
 }
-
-/* ================== C Wrappers for MPI_Testsome ================== */
-_EXTERN_C_ int PMPI_Testsome(int arg_0, MPI_Request *arg_1, int *arg_2, int *arg_3, MPI_Status *arg_4);
-_EXTERN_C_ int MPI_Testsome(int arg_0, MPI_Request *arg_1, int *arg_2, int *arg_3, MPI_Status *arg_4) { 
-    int _wrap_py_return_val = 0;
-    PMPI_WRAP(_wrap_py_return_val = PMPI_Testsome(arg_0, arg_1, arg_2, arg_3, arg_4), __func__);
-    return _wrap_py_return_val;
-}
-
-
 
 
 /* ================== C Wrappers for MPI_Waitany ================== */
 _EXTERN_C_ int PMPI_Waitany(int arg_0, MPI_Request *arg_1, int *arg_2, MPI_Status *arg_3);
 _EXTERN_C_ int MPI_Waitany(int arg_0, MPI_Request *arg_1, int *arg_2, MPI_Status *arg_3) { 
     int _wrap_py_return_val = 0;
-    PMPI_WRAP(_wrap_py_return_val = PMPI_Waitany(arg_0, arg_1, arg_2, arg_3), __func__);
+    int flag = 0;
+    while(!flag) {
+      MPI_Testany(arg_0, arg_1, arg_2, &flag, arg_3);
+    }
+    return _wrap_py_return_val;
+}
+
+/* ================== C Wrappers for MPI_Testsome ================== */
+_EXTERN_C_ int PMPI_Testsome(int arg_0, MPI_Request *arg_1, int *arg_2, int *arg_3, MPI_Status *arg_4);
+_EXTERN_C_ int MPI_Testsome(int arg_0, MPI_Request *arg_1, int *arg_2, int *arg_3, MPI_Status *arg_4)
+{ 
+    int _wrap_py_return_val = 0;
+    int flag;
+    MPI_Status stat;
+    int index = 0;
+    for (int i = 0; i < arg_0; i++) {
+      MPI_Test(&arg_1[i], &flag, &stat);
+      if (flag) {
+	arg_3[index] = i;
+	if (arg_4 != MPI_STATUS_IGNORE) arg_4[i] = stat;
+	index++;
+      }
+    }
+    *arg_2 = index;
+    //    PMPI_WRAP(_wrap_py_return_val = PMPI_Testsome(arg_0, arg_1, arg_2, arg_3, arg_4), __func__);
     return _wrap_py_return_val;
 }
 
@@ -412,7 +571,12 @@ _EXTERN_C_ int MPI_Waitany(int arg_0, MPI_Request *arg_1, int *arg_2, MPI_Status
 _EXTERN_C_ int PMPI_Waitsome(int arg_0, MPI_Request *arg_1, int *arg_2, int *arg_3, MPI_Status *arg_4);
 _EXTERN_C_ int MPI_Waitsome(int arg_0, MPI_Request *arg_1, int *arg_2, int *arg_3, MPI_Status *arg_4) { 
     int _wrap_py_return_val = 0;
-    PMPI_WRAP(_wrap_py_return_val = PMPI_Waitsome(arg_0, arg_1, arg_2, arg_3, arg_4), __func__);
+    *arg_2 = 0;
+    while(1) {
+      MPI_Testsome(arg_0, arg_1, arg_2, arg_3, arg_4);
+      if (*arg_2 > 0) break;
+    }
+    //    PMPI_WRAP(_wrap_py_return_val = PMPI_Waitsome(arg_0, arg_1, arg_2, arg_3, arg_4), __func__);
     return _wrap_py_return_val;
 }
 
@@ -473,7 +637,10 @@ _EXTERN_C_ int MPI_Address(void *arg_0, MPI_Aint *arg_1) {
 _EXTERN_C_ int PMPI_Allgather(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, void *arg_3, int arg_4, MPI_Datatype arg_5, MPI_Comm arg_6);
 _EXTERN_C_ int MPI_Allgather(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, void *arg_3, int arg_4, MPI_Datatype arg_5, MPI_Comm arg_6) { 
     int _wrap_py_return_val = 0;
-    PMPI_WRAP(_wrap_py_return_val = PMPI_Allgather(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6), __func__);
+    MPI_Request req;
+    PMPI_WRAP(_wrap_py_return_val = PMPI_Iallgather(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, &req), __func__);
+    MPI_Wait(&req, MPI_STATUS_IGNORE);
+    //    PMPI_WRAP(_wrap_py_return_val = PMPI_Allgather(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6), __func__);
     return _wrap_py_return_val;
 }
 
@@ -481,7 +648,10 @@ _EXTERN_C_ int MPI_Allgather(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype 
 _EXTERN_C_ int PMPI_Allgatherv(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, void *arg_3, nin_mpi_const int *arg_4, nin_mpi_const int *arg_5, MPI_Datatype arg_6, MPI_Comm arg_7);
 _EXTERN_C_ int MPI_Allgatherv(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, void *arg_3, nin_mpi_const int *arg_4, nin_mpi_const int *arg_5, MPI_Datatype arg_6, MPI_Comm arg_7) { 
     int _wrap_py_return_val = 0;
-    PMPI_WRAP(_wrap_py_return_val = PMPI_Allgatherv(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7), __func__);
+    MPI_Request req;
+    PMPI_WRAP(_wrap_py_return_val = PMPI_Iallgatherv(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, &req), __func__);
+    MPI_Wait(&req, MPI_STATUS_IGNORE);
+    //    PMPI_WRAP(_wrap_py_return_val = PMPI_Allgatherv(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7), __func__);
     return _wrap_py_return_val;
 }
 
@@ -500,11 +670,10 @@ _EXTERN_C_ int PMPI_Allreduce(nin_mpi_const void *arg_0, void *arg_1, int arg_2,
 _EXTERN_C_ int MPI_Allreduce(nin_mpi_const void *arg_0, void *arg_1, int arg_2, MPI_Datatype arg_3, MPI_Op arg_4, MPI_Comm arg_5) { 
     int _wrap_py_return_val = 0;
     MPI_Request req;
-    //    NIN_DBG("=== %s called: %d ===", __func__, counter);
-    MPI_Iallreduce(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, &req);
-    MPI_Wait(&req, MPI_STATUS_IGNORE);
-    //    NIN_DBG("=== %s  ended: %d ===", __func__, counter++);
-    //    PMPI_WRAP(_wrap_py_return_val = PMPI_Allreduce(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5), __func__);
+    PMPI_WRAP(_wrap_py_return_val = PMPI_Iallreduce(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, &req), __func__);
+    //    -wrap_py_return_val = MPI_Iallreduce(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, &req);
+    _wrap_py_return_val = MPI_Wait(&req, MPI_STATUS_IGNORE);
+    //PMPI_WRAP(_wrap_py_return_val = PMPI_Allreduce(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5), __func__);
     return _wrap_py_return_val;
 }
 
@@ -520,7 +689,10 @@ _EXTERN_C_ int MPI_Iallgather(const void *sendbuf, int sendcount, MPI_Datatype s
 _EXTERN_C_ int PMPI_Alltoall(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, void *arg_3, int arg_4, MPI_Datatype arg_5, MPI_Comm arg_6);
 _EXTERN_C_ int MPI_Alltoall(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, void *arg_3, int arg_4, MPI_Datatype arg_5, MPI_Comm arg_6) { 
     int _wrap_py_return_val = 0;
-    PMPI_WRAP(_wrap_py_return_val = PMPI_Alltoall(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6), __func__);
+    MPI_Request req;
+    PMPI_WRAP(_wrap_py_return_val = PMPI_Ialltoall(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, &req), __func__);
+    MPI_Wait(&req, MPI_STATUS_IGNORE);
+    //    PMPI_WRAP(_wrap_py_return_val = PMPI_Alltoall(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6), __func__);
     return _wrap_py_return_val;
 }
 
@@ -528,7 +700,11 @@ _EXTERN_C_ int MPI_Alltoall(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype a
 _EXTERN_C_ int PMPI_Alltoallv(nin_mpi_const void *arg_0, nin_mpi_const int *arg_1, nin_mpi_const int *arg_2, MPI_Datatype arg_3, void *arg_4, nin_mpi_const int *arg_5, nin_mpi_const int *arg_6, MPI_Datatype arg_7, MPI_Comm arg_8);
 _EXTERN_C_ int MPI_Alltoallv(nin_mpi_const void *arg_0, nin_mpi_const int *arg_1, nin_mpi_const int *arg_2, MPI_Datatype arg_3, void *arg_4, nin_mpi_const int *arg_5, nin_mpi_const int *arg_6, MPI_Datatype arg_7, MPI_Comm arg_8) { 
     int _wrap_py_return_val = 0;
-    PMPI_WRAP(_wrap_py_return_val = PMPI_Alltoallv(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8), __func__);
+    MPI_Request req;
+    PMPI_WRAP(_wrap_py_return_val = PMPI_Ialltoallv(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8, &req), __func__);
+    MPI_Wait(&req, MPI_STATUS_IGNORE);
+    
+    //    PMPI_WRAP(_wrap_py_return_val = PMPI_Alltoallv(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8), __func__);
     return _wrap_py_return_val;
 }
 
@@ -566,7 +742,10 @@ _EXTERN_C_ int MPI_Attr_put(MPI_Comm arg_0, int arg_1, void *arg_2) {
 _EXTERN_C_ int PMPI_Barrier(MPI_Comm arg_0);
 _EXTERN_C_ int MPI_Barrier(MPI_Comm arg_0) { 
     int _wrap_py_return_val = 0;
-    PMPI_WRAP(_wrap_py_return_val = PMPI_Barrier(arg_0), __func__);
+    MPI_Request req;
+    PMPI_WRAP(_wrap_py_return_val = PMPI_Ibarrier(arg_0, &req), __func__);
+    MPI_Wait(&req, MPI_STATUS_IGNORE);
+    //    PMPI_WRAP(_wrap_py_return_val = PMPI_Barrier(arg_0), __func__);
     return _wrap_py_return_val;
 }
 
@@ -574,7 +753,10 @@ _EXTERN_C_ int MPI_Barrier(MPI_Comm arg_0) {
 _EXTERN_C_ int PMPI_Bcast(void *arg_0, int arg_1, MPI_Datatype arg_2, int arg_3, MPI_Comm arg_4);
 _EXTERN_C_ int MPI_Bcast(void *arg_0, int arg_1, MPI_Datatype arg_2, int arg_3, MPI_Comm arg_4) { 
     int _wrap_py_return_val = 0;
-    PMPI_WRAP(_wrap_py_return_val = PMPI_Bcast(arg_0, arg_1, arg_2, arg_3, arg_4), __func__);
+    MPI_Request req;
+    PMPI_WRAP(_wrap_py_return_val = PMPI_Ibcast(arg_0, arg_1, arg_2, arg_3, arg_4, &req), __func__);
+    MPI_Wait(&req, MPI_STATUS_IGNORE);
+    //    PMPI_WRAP(_wrap_py_return_val = PMPI_Bcast(arg_0, arg_1, arg_2, arg_3, arg_4), __func__);
     return _wrap_py_return_val;
 }
 
@@ -721,6 +903,7 @@ _EXTERN_C_ int PMPI_Comm_rank(MPI_Comm arg_0, int *arg_1);
 _EXTERN_C_ int MPI_Comm_rank(MPI_Comm arg_0, int *arg_1) { 
     int _wrap_py_return_val = 0;
     PMPI_WRAP(_wrap_py_return_val = PMPI_Comm_rank(arg_0, arg_1), __func__);
+    //    PMPI_Comm_rank(arg_0, arg_1);
     return _wrap_py_return_val;
 }
 
@@ -753,6 +936,7 @@ _EXTERN_C_ int PMPI_Comm_size(MPI_Comm arg_0, int *arg_1);
 _EXTERN_C_ int MPI_Comm_size(MPI_Comm arg_0, int *arg_1) { 
     int _wrap_py_return_val = 0;
     PMPI_WRAP(_wrap_py_return_val = PMPI_Comm_size(arg_0, arg_1), __func__);
+    //_wrap_py_return_val = PMPI_Comm_size(arg_0, arg_1);
     return _wrap_py_return_val;
 }
 
@@ -1282,7 +1466,10 @@ _EXTERN_C_ int MPI_Finalized(int *arg_0) {
 _EXTERN_C_ int PMPI_Gather(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, void *arg_3, int arg_4, MPI_Datatype arg_5, int arg_6, MPI_Comm arg_7);
 _EXTERN_C_ int MPI_Gather(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, void *arg_3, int arg_4, MPI_Datatype arg_5, int arg_6, MPI_Comm arg_7) { 
     int _wrap_py_return_val = 0;
-    PMPI_WRAP(_wrap_py_return_val = PMPI_Gather(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7), __func__);
+    MPI_Request req;
+    PMPI_WRAP(_wrap_py_return_val = PMPI_Igather(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, &req), __func__);
+    MPI_Wait(&req, MPI_STATUS_IGNORE);
+    //    PMPI_WRAP(_wrap_py_return_val = PMPI_Gather(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7), __func__);
     return _wrap_py_return_val;
 }
 
@@ -1290,7 +1477,10 @@ _EXTERN_C_ int MPI_Gather(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg
 _EXTERN_C_ int PMPI_Gatherv(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, void *arg_3, nin_mpi_const int *arg_4, nin_mpi_const int *arg_5, MPI_Datatype arg_6, int arg_7, MPI_Comm arg_8);
 _EXTERN_C_ int MPI_Gatherv(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, void *arg_3, nin_mpi_const int *arg_4, nin_mpi_const int *arg_5, MPI_Datatype arg_6, int arg_7, MPI_Comm arg_8) { 
     int _wrap_py_return_val = 0;
-    PMPI_WRAP(_wrap_py_return_val = PMPI_Gatherv(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8), __func__);
+    MPI_Request req;
+    PMPI_WRAP(_wrap_py_return_val = PMPI_Igatherv(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8, &req), __func__);
+    MPI_Wait(&req, MPI_STATUS_IGNORE);
+    //    PMPI_WRAP(_wrap_py_return_val = PMPI_Gatherv(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8), __func__);
     return _wrap_py_return_val;
 }
 
@@ -1562,9 +1752,11 @@ _EXTERN_C_ int MPI_Init_thread(int *arg_0, char ***arg_1, int arg_2, int *arg_3)
     if (required < arg_2) {
       required = arg_2;
     }
-    PMPI_WRAP(_wrap_py_return_val = PMPI_Init_thread(arg_0, arg_1, arg_2, arg_3), __func__);
+    PMPI_WRAP(_wrap_py_return_val = PMPI_Init_thread(arg_0, arg_1, required, arg_3), __func__);
     if (MPI_THREAD_SERIALIZED > *arg_3) {
-      NIN_DBG("NIN requires MPI_THREAD_SERIALIZED or higher");
+      NIN_DBG("NIN requires MPI_THREAD_SERIALIZED or higher: required:%d provided:%d (MPI_THREAD_SERIALIZED: %d)", 
+	      required, *arg_3, MPI_THREAD_SERIALIZED);
+      exit(0);
     }
     nin_init(arg_0, arg_1);
     return _wrap_py_return_val;
@@ -1643,15 +1835,17 @@ _EXTERN_C_ int MPI_Op_free(MPI_Op *arg_0) {
 /* ================== C Wrappers for MPI_Pack ================== */
 _EXTERN_C_ int PMPI_Pack(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, void *arg_3, int arg_4, int *arg_5, MPI_Comm arg_6);
 _EXTERN_C_ int MPI_Pack(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, void *arg_3, int arg_4, int *arg_5, MPI_Comm arg_6) { 
-    int _wrap_py_return_val = 0;
-    PMPI_WRAP(_wrap_py_return_val = PMPI_Pack(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6), __func__);
-    return _wrap_py_return_val;
+  int _wrap_py_return_val = 0;
+  PMPI_WRAP(_wrap_py_return_val = PMPI_Pack(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6), __func__);
+  //_wrap_py_return_val = PMPI_Pack(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6);
+  return _wrap_py_return_val;
 }
 
 /* ================== C Wrappers for MPI_Pack_size ================== */
 _EXTERN_C_ int PMPI_Pack_size(int arg_0, MPI_Datatype arg_1, MPI_Comm arg_2, int *arg_3);
 _EXTERN_C_ int MPI_Pack_size(int arg_0, MPI_Datatype arg_1, MPI_Comm arg_2, int *arg_3) { 
     int _wrap_py_return_val = 0;
+    //_wrap_py_return_val = PMPI_Pack_size(arg_0, arg_1, arg_2, arg_3);
     PMPI_WRAP(_wrap_py_return_val = PMPI_Pack_size(arg_0, arg_1, arg_2, arg_3), __func__);
     return _wrap_py_return_val;
 }
@@ -1661,6 +1855,7 @@ _EXTERN_C_ int PMPI_Pcontrol(const int arg_0, ...);
 _EXTERN_C_ int MPI_Pcontrol(const int arg_0, ...) { 
     int _wrap_py_return_val = 0;
     PMPI_WRAP(_wrap_py_return_val = PMPI_Pcontrol(arg_0), __func__);
+    ninj_fc_do_model_tuning();
     return _wrap_py_return_val;
 }
 
@@ -1691,7 +1886,10 @@ _EXTERN_C_ int MPI_Recv_init(void *arg_0, int arg_1, MPI_Datatype arg_2, int arg
 _EXTERN_C_ int PMPI_Reduce(nin_mpi_const void *arg_0, void *arg_1, int arg_2, MPI_Datatype arg_3, MPI_Op arg_4, int arg_5, MPI_Comm arg_6);
 _EXTERN_C_ int MPI_Reduce(nin_mpi_const void *arg_0, void *arg_1, int arg_2, MPI_Datatype arg_3, MPI_Op arg_4, int arg_5, MPI_Comm arg_6) { 
     int _wrap_py_return_val = 0;
-    PMPI_WRAP(_wrap_py_return_val = PMPI_Reduce(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6), __func__);
+    MPI_Request req;
+    PMPI_WRAP(_wrap_py_return_val = PMPI_Ireduce(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, &req), __func__);
+    MPI_Wait(&req, MPI_STATUS_IGNORE);
+    //    PMPI_WRAP(_wrap_py_return_val = PMPI_Reduce(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6), __func__);
     return _wrap_py_return_val;
 }
 
@@ -1699,7 +1897,10 @@ _EXTERN_C_ int MPI_Reduce(nin_mpi_const void *arg_0, void *arg_1, int arg_2, MPI
 _EXTERN_C_ int PMPI_Reduce_scatter(nin_mpi_const void *arg_0, void *arg_1, nin_mpi_const int *arg_2, MPI_Datatype arg_3, MPI_Op arg_4, MPI_Comm arg_5);
 _EXTERN_C_ int MPI_Reduce_scatter(nin_mpi_const void *arg_0, void *arg_1, nin_mpi_const int *arg_2, MPI_Datatype arg_3, MPI_Op arg_4, MPI_Comm arg_5) { 
     int _wrap_py_return_val = 0;
-    PMPI_WRAP(_wrap_py_return_val = PMPI_Reduce_scatter(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5), __func__);
+    MPI_Request req;
+    PMPI_WRAP(_wrap_py_return_val = PMPI_Ireduce_scatter(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, &req), __func__);
+    MPI_Wait(&req, MPI_STATUS_IGNORE);
+    //    PMPI_WRAP(_wrap_py_return_val = PMPI_Reduce_scatter(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5), __func__);
     return _wrap_py_return_val;
 }
 
@@ -1726,7 +1927,10 @@ _EXTERN_C_ int MPI_Request_free(MPI_Request *arg_0) {
 _EXTERN_C_ int PMPI_Scan(nin_mpi_const void *arg_0, void *arg_1, int arg_2, MPI_Datatype arg_3, MPI_Op arg_4, MPI_Comm arg_5);
 _EXTERN_C_ int MPI_Scan(nin_mpi_const void *arg_0, void *arg_1, int arg_2, MPI_Datatype arg_3, MPI_Op arg_4, MPI_Comm arg_5) { 
     int _wrap_py_return_val = 0;
-    PMPI_WRAP(_wrap_py_return_val = PMPI_Scan(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5), __func__);
+    MPI_Request req;
+    PMPI_WRAP(_wrap_py_return_val = PMPI_Iscan(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, &req), __func__);
+    MPI_Wait(&req, MPI_STATUS_IGNORE);
+    //    PMPI_WRAP(_wrap_py_return_val = PMPI_Scan(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5), __func__);
     return _wrap_py_return_val;
 }
 
@@ -1734,7 +1938,10 @@ _EXTERN_C_ int MPI_Scan(nin_mpi_const void *arg_0, void *arg_1, int arg_2, MPI_D
 _EXTERN_C_ int PMPI_Scatter(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, void *arg_3, int arg_4, MPI_Datatype arg_5, int arg_6, MPI_Comm arg_7);
 _EXTERN_C_ int MPI_Scatter(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, void *arg_3, int arg_4, MPI_Datatype arg_5, int arg_6, MPI_Comm arg_7) { 
     int _wrap_py_return_val = 0;
-    PMPI_WRAP(_wrap_py_return_val = PMPI_Scatter(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7), __func__);
+    MPI_Request req;
+    PMPI_WRAP(_wrap_py_return_val = PMPI_Iscatter(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, &req), __func__);
+    MPI_Wait(&req, MPI_STATUS_IGNORE);
+    //    PMPI_WRAP(_wrap_py_return_val = PMPI_Scatter(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7), __func__);
     return _wrap_py_return_val;
 }
 
@@ -1742,7 +1949,10 @@ _EXTERN_C_ int MPI_Scatter(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype ar
 _EXTERN_C_ int PMPI_Scatterv(nin_mpi_const void *arg_0, nin_mpi_const int *arg_1, nin_mpi_const int *arg_2, MPI_Datatype arg_3, void *arg_4, int arg_5, MPI_Datatype arg_6, int arg_7, MPI_Comm arg_8);
 _EXTERN_C_ int MPI_Scatterv(nin_mpi_const void *arg_0, nin_mpi_const int *arg_1, nin_mpi_const int *arg_2, MPI_Datatype arg_3, void *arg_4, int arg_5, MPI_Datatype arg_6, int arg_7, MPI_Comm arg_8) { 
     int _wrap_py_return_val = 0;
-    PMPI_WRAP(_wrap_py_return_val = PMPI_Scatterv(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8), __func__);
+    MPI_Request req;
+    PMPI_WRAP(_wrap_py_return_val = PMPI_Iscatterv(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8, &req), __func__);
+    MPI_Wait(&req, MPI_STATUS_IGNORE);
+    //    PMPI_WRAP(_wrap_py_return_val = PMPI_Scatterv(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8), __func__);
     return _wrap_py_return_val;
 }
 
@@ -1889,6 +2099,7 @@ _EXTERN_C_ int PMPI_Type_size(MPI_Datatype arg_0, int *arg_1);
 _EXTERN_C_ int MPI_Type_size(MPI_Datatype arg_0, int *arg_1) { 
     int _wrap_py_return_val = 0;
     PMPI_WRAP(_wrap_py_return_val = PMPI_Type_size(arg_0, arg_1), __func__);
+    //_wrap_py_return_val = PMPI_Type_size(arg_0, arg_1);
     return _wrap_py_return_val;
 }
 
@@ -1922,6 +2133,7 @@ _EXTERN_C_ int MPI_Type_vector(int arg_0, int arg_1, int arg_2, MPI_Datatype arg
 _EXTERN_C_ int PMPI_Unpack(nin_mpi_const void *arg_0, int arg_1, int *arg_2, void *arg_3, int arg_4, MPI_Datatype arg_5, MPI_Comm arg_6);
 _EXTERN_C_ int MPI_Unpack(nin_mpi_const void *arg_0, int arg_1, int *arg_2, void *arg_3, int arg_4, MPI_Datatype arg_5, MPI_Comm arg_6) { 
     int _wrap_py_return_val = 0;
+    //_wrap_py_return_val = PMPI_Unpack(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6);
     PMPI_WRAP(_wrap_py_return_val = PMPI_Unpack(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6), __func__);
     return _wrap_py_return_val;
 }

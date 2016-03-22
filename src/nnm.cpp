@@ -21,17 +21,18 @@
 //#define NNM_BST_MSG_NUM (128)
 #define NNM_BST_MSG_NUM (64)
 #define NNM_BST_TAG (17)
-#define NNM_BST_MSG (1)
+
+#define NNM_BST_MSG (1.5)
 #define NNM_1ST_MSG (0)
-#define NNM_2ND_MSG (3)
-#define NNM_TRM_MSG (4)
+#define NNM_2ND_MSG (3.5)
+#define NNM_TRM_MSG (4.5)
 
 using namespace std;
 
 int my_rank;
 double lat_01, lat_12, lat_02;
 
-
+int fd;
 
 static double measure_min_latency(int peer_rank, int is_server)
 {
@@ -112,7 +113,7 @@ static void measure_net_noise(int src, int middle, int dest,
   double current_time;
   double bperiod;
   
-  if (length <= 10) {
+  if (length < 10) {
     NIN_DBG("must be length > 10");
     exit(0);
   }
@@ -145,16 +146,27 @@ static void measure_net_noise(int src, int middle, int dest,
       if (send_buf2 != NNM_TRM_MSG) {
 	send_buf2 = NIN_Wtime() - current_time;
       }
+
+      //      NIN_DBG("Send : %d (%f %f)", counter, send_buf1, send_buf2);
       MPI_Isend(&send_buf1, 1, MPI_DOUBLE, dest,   NNM_NETN_TAG, MPI_COMM_WORLD, &req[0]);
       MPI_Isend(&send_buf2, 1, MPI_DOUBLE, middle, NNM_NETN_TAG, MPI_COMM_WORLD, &req[1]);
+      //      NIN_DBG("Send ... done : %d", counter++);
+      //      MPI_Send(&send_buf1, 1, MPI_DOUBLE, dest,   NNM_NETN_TAG, MPI_COMM_WORLD);
+      //      MPI_Send(&send_buf2, 1, MPI_DOUBLE, middle, NNM_NETN_TAG, MPI_COMM_WORLD);
       MPI_Recv(&recv_buf , 1, MPI_DOUBLE, dest,   NNM_NETN_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
       MPI_Waitall(length, reqb, MPI_STATUS_IGNORE);
       MPI_Waitall(2, req, MPI_STATUS_IGNORE);
       if (send_buf1 == NNM_TRM_MSG) break;
     } else if (my_rank == middle) {
+      //      NIN_DBG("Recv : %d", counter);
       MPI_Recv(&recv_buf, 1, MPI_DOUBLE, src,  NNM_NETN_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+      //      NIN_DBG("Send : %d (%f)", counter, recv_buf);
       MPI_Send(&recv_buf, 1, MPI_DOUBLE, dest, NNM_NETN_TAG, MPI_COMM_WORLD);
-      if (recv_buf == NNM_TRM_MSG) break;
+      //      NIN_DBG("Send  ... done : %d", counter++);
+      if (recv_buf == NNM_TRM_MSG) {      
+	//	NIN_DBG("break"); 
+	break;}
+
     } else if (my_rank == dest) {
       flag = 0;
       for (int i = 0 ; i < length; i++) {
@@ -163,10 +175,15 @@ static void measure_net_noise(int src, int middle, int dest,
       for (int i = 0; i < 2; i++) {
 	MPI_Irecv(&recv_ts[i], 1, MPI_DOUBLE, MPI_ANY_SOURCE, NNM_NETN_TAG, MPI_COMM_WORLD, &req[i]);
       }
+
+
       MPI_Wait(&req[0], MPI_STATUS_IGNORE);
+
       ts_1st_msg = ts_2nd_msg = NIN_Wtime();
       if (recv_ts[0] == NNM_1ST_MSG || recv_ts[0] == NNM_BST_MSG) {
+	//	NIN_DBG("Wait: %d", counter);
 	MPI_Wait(&req[1], MPI_STATUS_IGNORE);
+	//	NIN_DBG("Wait ... done: %d", counter++);
 	bperiod = recv_ts[1];
       } else {
 	while (!flag) {
@@ -175,6 +192,7 @@ static void measure_net_noise(int src, int middle, int dest,
 	  MPI_Test(&req[1], &flag, MPI_STATUS_IGNORE);
 	}
 	bperiod = recv_ts[0];
+	//	NIN_DBG("%f ", bperiod);
 
 	Dm = ts_2nd_msg_previous - ts_1st_msg;
 	Dsd = Dm + (latency_sm + latency_md) - latency_sd;
@@ -187,6 +205,7 @@ static void measure_net_noise(int src, int middle, int dest,
 	  record->detour_count++;
 	}
       }
+
       MPI_Waitall(length, reqb, MPI_STATUS_IGNORE);
       MPI_Send(&send_buf1, 1, MPI_DOUBLE, src,   NNM_NETN_TAG, MPI_COMM_WORLD);
       record->total_period_all += bperiod;
@@ -301,6 +320,37 @@ static void do_statistics(nnm_record_t *record)
   return;
 }
 
+static void dump(nnm_record_t *record, int num_packets)
+{
+  // sprintf(line, "procs: %d\n", commworld_size);
+  // mst_write(path, fd, line, strlen(line));
+  // sprintf(line, "delta min: %f, delta max: %f \n", delta_min, delta_max);
+  // mst_write(path, fd, line, strlen(line));
+  // sprintf(line, "------------------ \n");
+  // mst_write(path, fd, line, strlen(line));
+  // sprintf(line, "<rank> <timestamp> <src> \n");
+  // mst_write(path, fd, line, strlen(line));
+  // for (int rank = 0; rank < commworld_size; rank++) {
+  //   PMPI_Probe(rank, MST_RANK_TAG, mst_comm, &stat);
+  //   PMPI_Get_count(&stat, MPI_INT, &count);
+  //   recv_rank_buf = (int*)malloc(sizeof(int) * count);
+  //   PMPI_Recv(recv_rank_buf, count, MPI_INT, rank, MST_RANK_TAG, mst_comm, MPI_STATUS_IGNORE);
+  //   PMPI_Probe(rank, MST_TS_TAG, mst_comm, &stat);
+  //   PMPI_Get_count(&stat, MPI_DOUBLE, &count);
+  //   recv_ts_buf = (double*)malloc(sizeof(double) *count);
+  //   PMPI_Recv(recv_ts_buf, count, MPI_DOUBLE, rank, MST_TS_TAG, mst_comm, MPI_STATUS_IGNORE);
+  //   for (int i = 0; i < count; i++) {
+  //     sprintf(line, "%d %f %d\n", rank, recv_ts_buf[i], recv_rank_buf[i]);
+  //     mst_write(path, fd, line, strlen(line));
+  //   }
+  //   free(recv_rank_buf);
+  //   free(recv_ts_buf);
+  // }
+  // mst_close(path, fd);
+  // MST_DBG("Trace written to %s", path);
+  return;
+}
+
 static void experiment()
 {
   int mtu, num_rail;
@@ -394,10 +444,11 @@ static int diagnose_threshold(int group_id, int src, int mtu)
   nnm_record_t *record;
   int num_packet_threshold = 0;
   int recv;
-  bytes = mtu;
+  bytes = 1;
   usec = 0;
   //  for (int num_packet = 600; num_packet <= 1000; num_packet += 10) {
-  for (int num_packet = 40; num_packet <= 700; num_packet += 10) {
+  //  for (int num_packet = 10; num_packet <= 90; num_packet += 1) {
+  for (int num_packet = 60; num_packet <= 90; num_packet += 1) {
     record = create_record_t();
     // NIN_DBG("src:%d, (%f %f %f), gid: %d num_packets:%d, bytes:%d, usec:%d",
     // 	    src, lat_01, lat_02, lat_12, group_id, num_packet, bytes, usec);
@@ -406,11 +457,14 @@ static int diagnose_threshold(int group_id, int src, int mtu)
     //    NIN_DBG("===");
     if (my_rank == src + 2) {
       do_statistics(record);
-      NIN_DBG("THR: usec: %d, num_packets:%d, bytes:%d, ratio:%f, delay:%f,  start:%f", usec, num_packet, bytes, record->delay_ratio,
+      // NIN_DBG("THR: usec: %d, num_packets:%d, bytes:%d, ratio:%f, delay:%f,  start:%f", usec, num_packet, bytes, record->delay_ratio,
+      //  	      record->ave_delay, record->ave_period_all);
+      NIN_DBG("THR: %d %d %d %f %f %f", usec, num_packet, bytes, record->delay_ratio,
        	      record->ave_delay, record->ave_period_all);
       if (record->delay_ratio > 0.3 && num_packet_threshold == 0) {
 	num_packet_threshold = num_packet;
       }
+      //      dump(record);
     }
     free_record_t(record);
     MPI_Allreduce(&num_packet_threshold, &recv, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
@@ -463,7 +517,13 @@ int main(int argc, char **argv)
   NIN_Init();
   MPI_Comm_rank(MPI_COMM_WORLD, &my_rank);
 
+  // bin_name = basename((*arg_1)[0]);
+  // sprintf(path, "%s.%d.nnm", bin_name, getpid());
+  // fd = mst_open(path, O_WRONLY | O_CREAT, S_IRUSR | S_IWUSR);
   diagnose();
+  //  close(fd);
+
+
   //  experiment();
 
   MPI_Finalize();

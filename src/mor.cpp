@@ -62,6 +62,21 @@ int mor_size;
 char *mor_bin_name;
 MPI_Request tmp_request[TMP_REQUEST_LEN];
 
+#define RECORD_RANK (0)
+
+#define NODELAY
+
+#ifdef NODELAY
+#define DELAY
+#else
+#define DELAY \
+  do { \
+    usleep(5000);\ 
+  } while(0) 
+#endif
+
+
+
 class msg_id {
 public:
   int src;
@@ -197,7 +212,11 @@ static void gather_write_record(vector<msg_id> &rtrace_vec)
 
   if (mor_my_rank != 0) goto end;
 
+#ifdef RECORD_RANK
+  sprintf(path, "%s.%d-%d.mor", mor_bin_name, getpid(), RECORD_RANK);
+#else
   sprintf(path, "%s.%d.mor", mor_bin_name, getpid());
+#endif
   fd = mst_open(path, O_WRONLY | O_CREAT, S_IRUSR | S_IWUSR);
   sprintf(line, "procs: %d\n", mor_size);
   mst_write(path, fd, line, strlen(line));
@@ -214,11 +233,21 @@ static void gather_write_record(vector<msg_id> &rtrace_vec)
     //NIN_DBG("rank: %d: length: %lu", rank ,count/sizeof(msg_id));
     recv_buf = (msg_id*)malloc(count);
     PMPI_Recv(recv_buf, count, MPI_BYTE, rank, MOR_WRITE_TAG, mor_comm, MPI_STATUS_IGNORE);
+#ifdef RECORD_RANK
+    if (rank == RECORD_RANK) {
+      for (int i = 0; i < count/sizeof(msg_id); i++) {
+	sprintf(line, "%d %d %d %d %d\n", rank, recv_buf[i].src, recv_buf[i].tag, recv_buf[i].comm_id, recv_buf[i].id);
+	mst_write(path, fd, line, strlen(line));
+	wsize += strlen(line);
+      }
+    }
+#else 
     for (int i = 0; i < count/sizeof(msg_id); i++) {
       sprintf(line, "%d %d %d %d %d\n", rank, recv_buf[i].src, recv_buf[i].tag, recv_buf[i].comm_id, recv_buf[i].id);
       mst_write(path, fd, line, strlen(line));
       wsize += strlen(line);
     }
+#endif
     free(recv_buf);
   }
   mst_close(path, fd);
@@ -236,6 +265,7 @@ _EXTERN_C_ int PMPI_Ibsend(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype ar
 _EXTERN_C_ int MPI_Ibsend(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, int arg_3, int arg_4, MPI_Comm arg_5, MPI_Request *arg_6) { 
   int _wrap_py_return_val = 0;
   _wrap_py_return_val = PMPI_Ibsend(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6);
+  DELAY;
   return _wrap_py_return_val;
 }
 
@@ -245,6 +275,7 @@ _EXTERN_C_ int PMPI_Irsend(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype ar
 _EXTERN_C_ int MPI_Irsend(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, int arg_3, int arg_4, MPI_Comm arg_5, MPI_Request *arg_6) { 
   int _wrap_py_return_val = 0;
   _wrap_py_return_val = PMPI_Irsend(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6);
+  DELAY;
   return _wrap_py_return_val;
 }
 
@@ -252,9 +283,8 @@ _EXTERN_C_ int MPI_Irsend(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg
 _EXTERN_C_ int PMPI_Isend(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, int arg_3, int arg_4, MPI_Comm arg_5, MPI_Request *arg_6);
 _EXTERN_C_ int MPI_Isend(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, int arg_3, int arg_4, MPI_Comm arg_5, MPI_Request *arg_6) { 
   int _wrap_py_return_val = 0;
-   usleep(1000 * mor_my_rank);
   _wrap_py_return_val = PMPI_Isend(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6);
-  //  NIN_DBGI(0, "isend req: %p", *arg_6);
+  DELAY;
   return _wrap_py_return_val;
 }
 
@@ -263,6 +293,7 @@ _EXTERN_C_ int PMPI_Issend(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype ar
 _EXTERN_C_ int MPI_Issend(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, int arg_3, int arg_4, MPI_Comm arg_5, MPI_Request *arg_6) { 
   int _wrap_py_return_val = 0;
   _wrap_py_return_val = PMPI_Issend(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6);
+  DELAY;
   return _wrap_py_return_val;
 }
 
@@ -385,6 +416,7 @@ _EXTERN_C_ int MPI_Test(MPI_Request *arg_0, int *arg_1, MPI_Status *arg_2) {
   _wrap_py_return_val = PMPI_Test(arg_0, arg_1, arg_2);
   if (*arg_1) mor_record_recvs(1, NULL, tmp_request, arg_2);
   if (flag) nin_status_free(arg_2);
+  DELAY;
   return _wrap_py_return_val;
 }
 
@@ -398,6 +430,7 @@ _EXTERN_C_ int MPI_Testall(int arg_0, MPI_Request *arg_1, int *arg_2, MPI_Status
   _wrap_py_return_val = PMPI_Testall(arg_0, arg_1, arg_2, arg_3);
   if (*arg_2) mor_record_recvs(arg_0, NULL, tmp_request, arg_3);
   if (flag) nin_status_free(arg_3);
+  DELAY;
   return _wrap_py_return_val;
 }
 
@@ -411,6 +444,7 @@ _EXTERN_C_ int MPI_Testany(int arg_0, MPI_Request *arg_1, int *arg_2, int *arg_3
   _wrap_py_return_val = PMPI_Testany(arg_0, arg_1, arg_2, arg_3, arg_4);
   if (*arg_3) mor_record_recvs(1, arg_2, tmp_request, arg_4);
   if (flag) nin_status_free(arg_4);
+  DELAY;
   return _wrap_py_return_val;
 }
 
@@ -424,6 +458,7 @@ _EXTERN_C_ int MPI_Testsome(int arg_0, MPI_Request *arg_1, int *arg_2, int *arg_
   _wrap_py_return_val = PMPI_Testsome(arg_0, arg_1, arg_2, arg_3, arg_4);
   if (*arg_2 > 0) mor_record_recvs(*arg_2, arg_3, tmp_request, arg_4);
   if (flag) nin_status_free(arg_4);
+  DELAY;
   return _wrap_py_return_val;
 }
 
@@ -439,6 +474,7 @@ _EXTERN_C_ int MPI_Wait(MPI_Request *arg_0, MPI_Status *arg_1) {
   //  NIN_DBG("---> after  status: %d", arg_1->MPI_SOURCE);
   mor_record_recvs(1, NULL, tmp_request, arg_1);
   if (flag) nin_status_free(arg_1);
+  DELAY;
   return _wrap_py_return_val;
 }
 
@@ -452,6 +488,7 @@ _EXTERN_C_ int MPI_Waitall(int arg_0, MPI_Request *arg_1, MPI_Status *arg_2) {
   _wrap_py_return_val = PMPI_Waitall(arg_0, arg_1, arg_2);
   mor_record_recvs(arg_0, NULL, tmp_request, arg_2);
   if (flag) nin_status_free(arg_2);
+  DELAY;
   return _wrap_py_return_val;
 }
 
@@ -465,6 +502,7 @@ _EXTERN_C_ int MPI_Waitany(int arg_0, MPI_Request *arg_1, int *arg_2, MPI_Status
   _wrap_py_return_val = PMPI_Waitany(arg_0, arg_1, arg_2, arg_3);
   mor_record_recvs(1, arg_2, tmp_request, arg_3);
   if (flag) nin_status_free(arg_3);
+  DELAY;
   return _wrap_py_return_val;
 }
 
@@ -478,6 +516,7 @@ _EXTERN_C_ int MPI_Waitsome(int arg_0, MPI_Request *arg_1, int *arg_2, int *arg_
   _wrap_py_return_val = PMPI_Waitsome(arg_0, arg_1, arg_2, arg_3, arg_4);
   mor_record_recvs(*arg_2, arg_3, tmp_request, arg_4);
   if (flag) nin_status_free(arg_4);
+  DELAY;
   return _wrap_py_return_val;
 }
 
@@ -503,8 +542,8 @@ _EXTERN_C_ int MPI_Init_thread(int *arg_0, char ***arg_1, int arg_2, int *arg_3)
 _EXTERN_C_ int PMPI_Iprobe(int arg_0, int arg_1, MPI_Comm arg_2, int *flag, MPI_Status *arg_4);
 _EXTERN_C_ int MPI_Iprobe(int arg_0, int arg_1, MPI_Comm arg_2, int *flag, MPI_Status *arg_4) { 
   int _wrap_py_return_val = 0;
-
   _wrap_py_return_val = PMPI_Iprobe(arg_0, arg_1, arg_2, flag, arg_4);
+  DELAY;
   return _wrap_py_return_val;
 }
 
@@ -521,8 +560,8 @@ _EXTERN_C_ int MPI_Irecv(void *arg_0, int arg_1, MPI_Datatype arg_2, int arg_3, 
 _EXTERN_C_ int PMPI_Probe(int arg_0, int arg_1, MPI_Comm arg_2, MPI_Status *arg_3);
 _EXTERN_C_ int MPI_Probe(int arg_0, int arg_1, MPI_Comm arg_2, MPI_Status *arg_3) { 
   int _wrap_py_return_val = 0;
-
   _wrap_py_return_val = PMPI_Probe(arg_0, arg_1, arg_2, arg_3);
+  DELAY;
   return _wrap_py_return_val;
 }
 
@@ -535,6 +574,7 @@ _EXTERN_C_ int MPI_Recv(void *arg_0, int arg_1, MPI_Datatype arg_2, int arg_3, i
   _wrap_py_return_val = PMPI_Recv(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6);
   mor_record_recv(arg_6->MPI_SOURCE, arg_6->MPI_TAG, arg_5);
   if (flag) nin_status_free(arg_6);
+  DELAY;
   return _wrap_py_return_val;
 }
 
