@@ -1,4 +1,3 @@
-
 #ifndef __NINJ_THREAD_H__
 #define __NINJ_THREAD_H__
 

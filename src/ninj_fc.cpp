@@ -2,12 +2,18 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/time.h>
+#include <libgen.h>
+#include <string.h>
 
 #include <unordered_map>
+#include <vector>
+#include <numeric>
 
 #include "mpi.h"
 #include "ninj_fc.h"
 #include "nin_util.h"
+#include "ninj_thread.h"
+#include "mst_io.h"
 
 #define NIN_CONF_PATTERN       "NIN_PATTERN"
 #define NIN_CONF_PATTERN_FREE  (0)
@@ -15,6 +21,9 @@
 #define NIN_CONF_PATTERN_MODEL (2)
 #define NIN_CONF_RAND_RATIO    "NIN_RAND_RATIO"
 #define NIN_CONF_RAND_DELAY    "NIN_RAND_DELAY"
+#define NIN_CONF_MODEL_MODE    "NIN_MODEL_MODE"
+#define NIN_CONF_MODEL_PASSIVE (0)
+#define NIN_CONF_MODEL_ACTIVE  (1)
 
 #define NINJ_FC_QUEUED_PACKET_NUM(head, tail) \
   (((tail - head) + NINJ_FC_RING_BUFF_SIZE) % NINJ_FC_RING_BUFF_SIZE)
@@ -29,13 +38,37 @@
 #define NINJ_FC_MODEL_PACKET_LATENCY    (0.2)  // in usec
 #define NINJ_FC_MODEL_PACKET_THROUGHPUT (312.5) // in bytes/usec e.g. (3.2GB/sec = 312.5 bytes/usec)
 
+#define NINJ_FC_THREAD_OVERHEAD_SEC (0.000050)
+
+#define NINJ_FC_MSG_ID(tag, comm_id) (size_t)(tag << 8 + comm_id)
+
+
 using namespace std;
 static unordered_map<int, double> rank_to_last_send_time_umap;
+static unordered_map<size_t, double> previous_send_times;
+/*For each matching_id, memorize send call intervals*/
+static unordered_map<size_t, vector<double>*> matching_id_to_send_intervals_umap;
+
+
+/* =====================================================================================  */
+/*            Machine learning date to be dumped for active noise injection               */
+/* =====================================================================================  */
+/*For each matching_id, memorize minimal noise */
+static unordered_map<size_t, double> matching_id_to_min_delay_umap;
+/*For each matching_id, memorize how much delay should be added*/
+static unordered_map<size_t, vector<double>*> matching_id_to_delays_umap;
+/* =====================================================================================  */
+
 static double *ninj_fc_ring_buffer;
 static int ninj_fc_ring_buffer_head_index = 0, ninj_fc_ring_buffer_tail_index = 0;
 static int ninj_fc_rb_max_length = -1, ninj_fc_rb_gmax_length = -1;
 static timeval ninj_fc_base_time;
 static double ninj_fc_mtu_transmit_time_usec;
+#define NINJ_FC_SEND_COUNT (0)
+#define NINJ_FC_RECV_COUNT (1)
+static int ninj_fc_msg_count[2] = {0,0}, ninj_fc_msg_count_buff[2] = {0,0};
+static int ninj_fc_delta_sum = 4;
+
 
 /*Configuration: common*/
 static int ninj_fc_pattern = NIN_CONF_PATTERN_MODEL;
@@ -48,13 +81,23 @@ static int ninj_fc_mtu_size = NINJ_FC_MTU;
 static int ninj_fc_queue_capacity = NINJ_FC_QUEUE_CAPACITY;
 static double ninj_fc_model_packet_latency_usec    = NINJ_FC_MODEL_PACKET_LATENCY;
 static double ninj_fc_model_packet_throughput_bpusec = NINJ_FC_MODEL_PACKET_THROUGHPUT;
-static int ninj_fc_queue_length_threshold = 4;
+static int ninj_fc_queue_length_threshold = 0;
+static int ninj_fc_model_mode = NIN_CONF_MODEL_PASSIVE;
+static char ninj_fc_learning_file[256];
 
 
 static int ninj_fc_delay_adjustment_for_ordered_send(int dest, int delay_flag, double current_time, double *send_time)
 {  
   int is_adjusted = 0;
-  double last_send_time = rank_to_last_send_time_umap[dest];
+  double last_send_time; 
+  double t;
+  if(rank_to_last_send_time_umap.find(dest) == 
+     rank_to_last_send_time_umap.end()) {
+    last_send_time = 0;
+    rank_to_last_send_time_umap[dest] = last_send_time;
+  } else {
+    last_send_time = rank_to_last_send_time_umap[dest];
+  }
   if (last_send_time > *send_time) {
     /*If there is pending message that will be sent after current_time + delay_sec,
       then this message must be right after this message. */
@@ -69,7 +112,8 @@ static int ninj_fc_delay_adjustment_for_ordered_send(int dest, int delay_flag, d
   return is_adjusted;
 }
 
-static void ninj_fc_get_delay_random(int dest, int *delay_flag, double *send_time)
+
+static void ninj_fc_get_delay_random(int dest, int tag, int comm_id, int *delay_flag, double *send_time, double *base_time)
 {
   double delay_sec;
   int is_delayed, is_adjusted;
@@ -84,11 +128,12 @@ static void ninj_fc_get_delay_random(int dest, int *delay_flag, double *send_tim
   }
   is_adjusted = ninj_fc_delay_adjustment_for_ordered_send(dest, *delay_flag, current_time, send_time);
   if (is_adjusted) *delay_flag = 1;
+  *base_time = (*delay_flag)? current_time:-1;
   return;
 }
 
 
-static void ninj_fc_get_delay_const(int dest, int *delay_flag, double *send_time)
+static void ninj_fc_get_delay_const(int dest, int tag, int comm_id, int *delay_flag, double *send_time)
 {
   double delay_sec;
   int is_delayed, is_adjusted;
@@ -118,32 +163,53 @@ static void ninj_fc_ring_buffer_head_progress()
   return;
 }
 
+/*Compute time to "num_packets" of pakets is transmitted. 
+The packests are from index:head to index:head + (num_packets - 1) */
 static double ninj_fc_get_time_of_packet_transmit(int num_packets)
 {
+
   double time;
-  int index = (ninj_fc_ring_buffer_head_index + num_packets) % NINJ_FC_RING_BUFF_SIZE;
+  if (num_packets == 0) { 
+    NIN_DBG("num_packets is 0");
+    exit(1);
+  }
+  int index = (ninj_fc_ring_buffer_head_index + num_packets - 1) % NINJ_FC_RING_BUFF_SIZE;
   time = ninj_fc_ring_buffer[index];
+  //  NIN_DBGI(0, "===== send_delay: %f (index: %d): num:%d", time, index, num_packets);
   return time;
 }
 
-static void ninj_fc_get_delay_model(int dest, int *delay_flag, double *send_time)
+static void ninj_fc_get_delay_model(int dest, int tag, int comm_id, int *delay_flag, double *send_time, double *base_time)
 {
   int enqueued_packet_num;
   double current_time   = NIN_get_time();
   int is_adjusted;
   ninj_fc_ring_buffer_head_progress();
   enqueued_packet_num = NINJ_FC_QUEUED_PACKET_NUM(ninj_fc_ring_buffer_head_index, ninj_fc_ring_buffer_tail_index);
-  if (enqueued_packet_num >= ninj_fc_queue_length_threshold) {
-    *delay_flag = 1;
-    *send_time = ninj_fc_get_time_of_packet_transmit(enqueued_packet_num - ninj_fc_queue_length_threshold + 1);
-  }
 
+  if (enqueued_packet_num > ninj_fc_queue_length_threshold) {
+    *delay_flag = 1;
+    *send_time = ninj_fc_get_time_of_packet_transmit(enqueued_packet_num - ninj_fc_queue_length_threshold);
+  } else {
+    *delay_flag = 0;
+    *send_time = current_time;
+  }
+  //  NIN_DBGI(0, "cur: %f, send: %f", current_time, *send_time);
+
+  /*Memorize max queue length how long the queue length grows for model tuning*/
   if (enqueued_packet_num > ninj_fc_rb_max_length) {
-    /*For model tuning*/
     ninj_fc_rb_max_length = enqueued_packet_num;
   }
+
+  // if (*delay_flag) {
+  //   NIN_DBGI(0, "before cur: %f, send: %f, aj: %d", current_time, *send_time, is_adjusted);
+  // }
   is_adjusted = ninj_fc_delay_adjustment_for_ordered_send(dest, *delay_flag, current_time, send_time);
   if(is_adjusted) *delay_flag = 1;
+  // if (*delay_flag) {
+  //   NIN_DBGI(0, "after cur: %f, send: %f, aj: %d", current_time, *send_time, is_adjusted);
+  // }
+  *base_time = (*delay_flag)? current_time:-1;
   return;
 }
 
@@ -161,8 +227,167 @@ static void ninj_fc_packet_transmit_model(int msgsize, int *mtu_packet_num, doub
   return;
 }
 
+static void ninj_fc_record_send_interval(double current_time_sec, int tag, int comm_id)
+{
+  size_t id;
+  double delta;
+  vector<double> *vec;
+  double previous_send_time;
+  id = NINJ_FC_MSG_ID(tag, comm_id);
+  if(previous_send_times.find(id) == previous_send_times.end()) {
+    previous_send_time = -1;
+    previous_send_times[id] = previous_send_time;
+  } else {
+    previous_send_time = previous_send_times[id];
+  }
 
-void ninj_fc_init()
+  if (previous_send_time == -1) {
+    previous_send_times[id] = current_time_sec;
+  } else {
+
+    if (matching_id_to_send_intervals_umap.find(id) ==  
+	matching_id_to_send_intervals_umap.end()) {
+      vec = new vector<double>;
+      matching_id_to_send_intervals_umap[id] = vec;
+    } else {
+      vec = matching_id_to_send_intervals_umap[id];
+    }
+    delta = current_time_sec - previous_send_time;
+    vec->push_back(delta);
+    //    ninj_fc_delta_sum += delta;
+    //    NIN_DBGI(0, "%f (%d %d => %lu)", current_time_sec - previous_send_time, tag, comm_id, id);
+    previous_send_times[id] = current_time_sec;
+  }
+  return;
+}
+
+static void ninj_fc_update_min_delay(size_t matching_id, double delay)
+{
+  if (matching_id_to_min_delay_umap.find(matching_id) ==
+      matching_id_to_min_delay_umap.end()) {
+    matching_id_to_min_delay_umap[matching_id] = delay;
+  } else {
+    if (matching_id_to_min_delay_umap[matching_id] > delay) {
+      matching_id_to_min_delay_umap[matching_id] = delay;
+    }    
+  }
+  //  NIN_DBGI(0, "min delay: %lu, %f", matching_id, matching_id_to_min_delay_umap[matching_id]);
+  return;
+}
+
+static double ninj_fc_get_min_delay(size_t matching_id)
+{
+  return matching_id_to_min_delay_umap[matching_id];
+}
+
+static void ninj_fc_read_learning_file()
+{
+  int fd;
+  size_t matching_id;
+  int delay_vec_length;
+  double interval_threshold, delay;
+  vector<double> *delay_vec;
+  char line[256];
+  FILE* file = fopen(ninj_fc_learning_file, "r"); /* should check the result */
+
+  while (fgets(line, sizeof(line), file)) {
+    matching_id = (size_t)atoi(line);
+    //    NIN_DBG("%lu", matching_id);
+
+    fgets(line, sizeof(line), file);
+    interval_threshold = atof(line);
+    //    NIN_DBG("%f", interval_threshold);
+
+    matching_id_to_min_delay_umap[matching_id] = interval_threshold;
+   
+
+    fgets(line, sizeof(line), file);
+    delay_vec_length = atoi(line);
+    //    NIN_DBG("%d", delay_vec_length);
+    
+    delay_vec = new vector<double>;
+
+    for (int i = 0; i < delay_vec_length; i++) {
+      fgets(line, sizeof(line), file);
+      delay = atof(line);
+      //      NIN_DBG("%f", delay);
+      delay_vec->push_back(delay);
+    }
+    matching_id_to_delays_umap[matching_id] = delay_vec;
+  }
+  /* may check feof here to make a difference between eof and io failure -- network
+     timeout for instance */
+  fclose(file);
+
+
+  // fd = mst_open(ninj_fc_learning_file, O_RDONLY, 0);
+  // mst_read(ninj_fc_learning_file, fd, line, )
+  // unordered_map<size_t, double>::const_iterator it;
+  // unordered_map<size_t, double>::const_iterator it_end;
+  // it     = matching_id_to_min_delay_umap.cbegin();
+  // it_end = matching_id_to_min_delay_umap.cend();
+  // for (; it != it_end; it++)  {
+  //   matching_id = it->first;
+  //   if (matching_id_to_delays_umap.find(matching_id) != 
+  // 	matching_id_to_delays_umap.end())  {
+  //     sprintf(line, "%lu\n", matching_id);
+  //     mst_write(ninj_fc_learning_file, fd, line, strlen(line));    
+  //     delay_vec = matching_id_to_delays_umap[matching_id];
+  //     sprintf(line, "%lu\n", delay_vec->size());
+  //     mst_write(ninj_fc_learning_file, fd, line, strlen(line));    
+  //     for (int i = 0; i < delay_vec->size(); i++) {
+  // 	sprintf(line, "%f\n", delay_vec->at(i));
+  // 	mst_write(ninj_fc_learning_file, fd, line, strlen(line));    
+  //     }
+  //   }
+  // }
+  // mst_close(ninj_fc_learning_file, fd);
+  // NIN_DBGI(0, "Learning file written to ./.ninj directory");
+
+  return;
+}
+
+static void ninj_fc_write_learning_file()
+{
+  int fd;
+  size_t matching_id;
+  vector<double> *delay_vec;
+  double interval_threshold;
+  char line[256];
+  fd = mst_open(ninj_fc_learning_file, O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
+  unordered_map<size_t, double>::const_iterator it;
+  unordered_map<size_t, double>::const_iterator it_end;
+  it     = matching_id_to_min_delay_umap.cbegin();
+  it_end = matching_id_to_min_delay_umap.cend();
+  for (; it != it_end; it++)  {
+    matching_id = it->first;
+    if (matching_id_to_delays_umap.find(matching_id) != 
+	matching_id_to_delays_umap.end())  {
+      sprintf(line, "%lu\n", matching_id);
+      mst_write(ninj_fc_learning_file, fd, line, strlen(line));    
+
+      interval_threshold = matching_id_to_min_delay_umap[matching_id];
+      sprintf(line, "%f\n", interval_threshold);
+      mst_write(ninj_fc_learning_file, fd, line, strlen(line));    
+
+      delay_vec = matching_id_to_delays_umap[matching_id];
+      sprintf(line, "%lu\n", delay_vec->size());
+      mst_write(ninj_fc_learning_file, fd, line, strlen(line));    
+
+      for (int i = 0; i < delay_vec->size(); i++) {
+	sprintf(line, "%f\n", delay_vec->at(i));
+	mst_write(ninj_fc_learning_file, fd, line, strlen(line));    
+      }
+    }
+  }
+  mst_close(ninj_fc_learning_file, fd);
+  NIN_DBGI(0, "Learning file written to ./.ninj directory");
+
+  return;
+}
+
+
+void ninj_fc_init(int argc, char **argv)
 {
   char *env;
   ninj_fc_ring_buffer = (double*)malloc(sizeof(double) * NINJ_FC_RING_BUFF_SIZE);
@@ -173,12 +398,13 @@ void ninj_fc_init()
   ninj_fc_ring_buffer_tail_index = 0;
   ninj_fc_mtu_transmit_time_usec = NINJ_FC_PACKET_TRANSMIT_MODEL(ninj_fc_mtu_size);
 
+  NIN_DBGI(0, "===========================================");
   if (NULL == (env = getenv(NIN_CONF_PATTERN))) {
     NIN_DBGI(0, "getenv failed: Please specify %s (%s:%s:%d)", NIN_CONF_PATTERN, __FILE__, __func__, __LINE__);
     exit(0);
   }
   ninj_fc_pattern = atoi(env);
-  NIN_DBGI(0, " NIN_PATTERN: %d", ninj_fc_pattern);
+  NIN_DBGI(0, " %s: %d", NIN_CONF_PATTERN, ninj_fc_pattern);
   if (ninj_fc_pattern == NIN_CONF_PATTERN_RAND) {
     if (NULL == (env = getenv(NIN_CONF_RAND_RATIO))) {
       NIN_DBGI(0, "getenv failed: Please specify %s (%s:%s:%d)", NIN_CONF_RAND_RATIO, __FILE__, __func__, __LINE__);
@@ -197,30 +423,62 @@ void ninj_fc_init()
     ninj_fc_rand_delay_usec = atof(env);
 
     NIN_DBGI(0, " NIN_RAND_DELAY: %d usec", ninj_fc_rand_delay_usec);
+  } else if (ninj_fc_pattern == NIN_CONF_PATTERN_MODEL) {
+    if (NULL == (env = getenv(NIN_CONF_MODEL_MODE))) {
+      NIN_DBGI(0, "getenv failed: Please specify %s (%s:%s:%d)", NIN_CONF_MODEL_MODE, __FILE__, __func__, __LINE__);
+      exit(0);
+    }
+    ninj_fc_model_mode = atoi(env);
+    NIN_DBGI(0, " %s: %d", NIN_CONF_MODEL_MODE, ninj_fc_model_mode);
+
+    sprintf(ninj_fc_learning_file, "./.ninj/%s.%d.nin", basename(argv[0]), nin_my_rank);
+    if (ninj_fc_model_mode == NIN_CONF_MODEL_ACTIVE) {
+      ninj_fc_read_learning_file();
+    }
   }
+  NIN_DBGI(0, "===========================================");
+
+
+
+  ninj_fc_msg_count[NINJ_FC_SEND_COUNT] = ninj_fc_msg_count[NINJ_FC_RECV_COUNT] = 0;
   return;
 }
 
-void ninj_fc_get_delay(int dest, int *delay_flag, double *send_time)
+
+void ninj_fc_finalize()
+{
+  ninj_fc_write_learning_file();
+  return;
+}
+
+
+void ninj_fc_get_delay(int dest, int tag, int comm_id, int *delay_flag, double *send_time)
 {
   *delay_flag = 0;
+  double base_time;
   switch(ninj_fc_pattern) {
   case NIN_CONF_PATTERN_FREE:
     /*Do nothing*/
     break;
   case NIN_CONF_PATTERN_RAND:
-    ninj_fc_get_delay_random(dest, delay_flag, send_time);
+    ninj_fc_get_delay_random(dest, tag, comm_id, delay_flag, send_time, &base_time);
     break;
   case NIN_CONF_PATTERN_MODEL:
-    ninj_fc_get_delay_model(dest, delay_flag, send_time);
+    ninj_fc_get_delay_model(dest, tag, comm_id, delay_flag, send_time, &base_time);
     break;
   default:
     NIN_DBG("No such NIN_PATTERN: %d", ninj_fc_pattern);
     exit(0);
     break;
   }
-  //  ninj_fc_get_delay_const(dest, delay_flag, send_time);
 
+  if (*delay_flag) {
+    double delay = *send_time - base_time;
+    delay = (delay < 0)? 0:delay;
+    ninj_fc_update_min_delay(NINJ_FC_MSG_ID(tag, comm_id), delay);
+  }
+
+  //  ninj_fc_get_delay_const(dest, delay_flag, send_time);
 
   // if (*delay_flag) {
   //   NIN_DBG("delay !");
@@ -230,6 +488,7 @@ void ninj_fc_get_delay(int dest, int *delay_flag, double *send_time)
 
 void ninj_fc_do_model_tuning()
 {
+#ifdef ENABLE_THRESHOLD_TUNING
   ninj_fc_queue_length_threshold--;
   if (ninj_fc_rb_gmax_length < 0 || ninj_fc_queue_length_threshold < 0) {
     MPI_Allreduce(&ninj_fc_rb_max_length, &ninj_fc_rb_gmax_length, 1, MPI_INT, MPI_MAX, MPI_COMM_WORLD);
@@ -237,11 +496,117 @@ void ninj_fc_do_model_tuning()
     /*K-means*/
   }
   NIN_DBGI(0, "threshold: %d", ninj_fc_queue_length_threshold);
+#endif
+  return;
+}
+
+static void ninj_fc_update_delay_threshold(size_t matching_id, vector<double> *delta_vec, double delta_threshold)
+{
+  vector<double> *delay_vec;
+  double delta_part_sum = 0;
+  int call_count = 0;
+  size_t delta_vec_size;
+  double delta;
+  /* Update delay */
+  if (matching_id_to_delays_umap.find(matching_id) == 
+      matching_id_to_delays_umap.end()){
+    delay_vec = new vector<double>;
+    matching_id_to_delays_umap[matching_id] = delay_vec;
+  } else {
+    delay_vec = matching_id_to_delays_umap[matching_id];
+  }
+  
+  delta_vec_size = delta_vec->size();
+  for (int i = 0; i < delta_vec_size; i++) {
+    delta = delta_vec->at(i);
+    delta_part_sum += delta;
+    if (delta >= delta_threshold) {
+      /*If separete send call detected, ... */
+      if (delay_vec->size() > call_count) {
+	/*If already have the delay */
+	if (delay_vec->at(call_count) < delta_part_sum) {
+	  /*If longer delay between call_set, update delay  */
+	  delay_vec->at(call_count) = delta_part_sum;
+	}
+      } else {
+	/*If this is first delay */
+	delay_vec->push_back(delta_part_sum);
+      }
+      //      NIN_DBGI(0, "delay: %f", delay_vec->at(call_count));
+      call_count++;
+      delta_part_sum = 0;
+    }
+  }
+
+#if 1
+  NIN_DBG("Threshold: %f", delta_threshold);
+  for (int i = 0; i < delay_vec->size(); i++) {
+    NIN_DBG( " %lu:%d: delay %f", matching_id, i, delay_vec->at(i));
+  }
+#endif
+
   return;
 }
 
 
-void ninj_fc_report_send(size_t size_bytes)
+int ninj_fc_update_delay()
+{
+  int is_updated;
+  size_t matching_id;
+  vector<double> *delta_vec;
+  double delta_sum;
+  double delta_threshold;
+  double delta;
+  double current_delay;
+  int delta_vec_size;
+  int call_set_count = 0;
+
+  unordered_map<size_t, vector<double>*>::const_iterator it;
+  unordered_map<size_t, vector<double>*>::const_iterator it_end;
+  it = matching_id_to_send_intervals_umap.cbegin();
+  it_end = matching_id_to_send_intervals_umap.cend();
+  /* For each matching id */
+  for (; it != it_end; it++) {
+    /* Compute how many call set count is in this epoch */
+    matching_id = it->first;
+    delta_vec = it->second;
+#if 1
+    delta_threshold = ninj_fc_get_min_delay(matching_id);
+#else
+    NIN_DBG("id: %lu, %p %lu", matching_id, delta_vec, delta_vec->size());
+    delta_vec_size = delta_vec->size();
+    delta_sum = 0;
+    for (int i = 0; i < delta_vec_size; i++) {
+      delta_sum += delta_vec->at(i);
+    }
+    delta_threshold = delta_sum / delta_vec_size;
+#endif
+
+    if (delta_threshold < NINJ_FC_THREAD_OVERHEAD_SEC) {
+      delta_threshold = NINJ_FC_THREAD_OVERHEAD_SEC;
+    }
+    ninj_fc_update_delay_threshold(matching_id, delta_vec, delta_threshold);
+
+    delta_vec->clear();
+    // if ()
+    // matching_id_to_delays_umap[];
+  }
+
+
+
+  
+  
+
+  return is_updated;
+}
+
+void ninj_fc_report_recv()
+{
+  /* Count # of recv for In-flight msg detection*/
+  ninj_fc_msg_count[NINJ_FC_RECV_COUNT]++;
+}
+
+void ninj_fc_report_send(size_t size_bytes, int tag, int comm_id)
 {
   timeval tval;
   int mtu_packet_num;
@@ -249,12 +614,16 @@ void ninj_fc_report_send(size_t size_bytes)
   double call_time_sec;
   double delay_usec;
   int next_tail_index;
+  double a, b;
   ninj_fc_packet_transmit_model(size_bytes, &mtu_packet_num, &last_packet_delay_usec);
   gettimeofday(&tval, NULL);
-  call_time_sec = tval.tv_sec + tval.tv_usec / 1e6;
+  call_time_sec = tval.tv_sec + tval.tv_usec / 1.0e6;
+  a = NIN_get_time();
+  //  NIN_DBGI(0, "current: %f", call_time_sec);
   delay_usec += ninj_fc_mtu_transmit_time_usec;
   while (mtu_packet_num-- > 0 || last_packet_delay_usec > 0) {
     ninj_fc_ring_buffer[ninj_fc_ring_buffer_tail_index] = call_time_sec + delay_usec / 1e6;    
+    //    NIN_DBGI(0, "  planded delay: %f (index: %d)", call_time_sec + delay_usec/1e6, ninj_fc_ring_buffer_tail_index);
     next_tail_index = (ninj_fc_ring_buffer_tail_index + 1) % NINJ_FC_RING_BUFF_SIZE;
     //    NIN_DBG("send_time: %f, time: %f", ninj_fc_ring_buffer[ninj_fc_ring_buffer_tail_index], call_time_sec);
     while (next_tail_index == ninj_fc_ring_buffer_head_index) {
@@ -268,9 +637,31 @@ void ninj_fc_report_send(size_t size_bytes)
     if (mtu_packet_num < 0) break;
     delay_usec += (mtu_packet_num == 0)? last_packet_delay_usec:ninj_fc_mtu_transmit_time_usec;
   }
-
+  /* Count # of send for In-flight msg detection*/
+  ninj_fc_msg_count[NINJ_FC_SEND_COUNT]++;
+  /* Record send interval for tuning*/
+  ninj_fc_record_send_interval(call_time_sec, tag, comm_id); /*For auto delay tuning*/
   return;
 }
 
+void ninj_fc_check_in_flight_msg(MPI_Comm comm)
+{
+  MPI_Request req;
+  if (comm == MPI_COMM_WORLD) {
+    //    NIN_DBGI(0, "%d %d", ninj_fc_msg_count[NINJ_FC_SEND_COUNT], ninj_fc_msg_count[NINJ_FC_RECV_COUNT]);
+    PMPI_WRAP(PMPI_Iallreduce(ninj_fc_msg_count, ninj_fc_msg_count_buff, 2, MPI_INT, MPI_SUM, comm, &req), __func__);
+    MPI_Wait(&req, MPI_STATUS_IGNORE);
+    if (ninj_fc_msg_count_buff[NINJ_FC_SEND_COUNT] == ninj_fc_msg_count_buff[NINJ_FC_RECV_COUNT]) {
+      ninj_fc_msg_count[NINJ_FC_SEND_COUNT] = ninj_fc_msg_count[NINJ_FC_RECV_COUNT] = 0;
+      previous_send_times.clear();
+      ninj_fc_delta_sum = 0;
+      ninj_fc_update_delay();
+      //      NIN_DBGI(0, "No infligth");
+    } else {
+      //      NIN_DBGI(0, "Infligth: %d %d", ninj_fc_msg_count[NINJ_FC_SEND_COUNT], ninj_fc_msg_count[NINJ_FC_RECV_COUNT]);
+    }
+  }
+  return;
+}
 
 

@@ -20,15 +20,15 @@ nin_test_matching_race_OBJS = $(nin_test_matching_race_SRCS:%.c=%.o)
 nin_test_matching_race_DEPS = $(nin_test_matching_race_SRCS:%.c=%.d)
 nin_test_matching_race_PROGRAM = nin_test_matching_race
 
-PROGRAMS= $(mst_test_pingpong_PROGRAM) \
+PROGRAMS=$(mst_test_pingpong_PROGRAM) \
 	 $(mst_test_units_PROGRAM) \
 	 $(mst_test_hypre_parasails_PROGRAM) \
-	 $(nin_test_matching_race_PROGRAM) \
-OBJS= $(mst_test_pingpong_OBJS) \
+	 $(nin_test_matching_race_PROGRAM) 
+OBJS=$(mst_test_pingpong_OBJS) \
 	 $(mst_test_hypre_parasails_OBJS) \
 	 $(mst_test_units_OBJS) \
-	 $(nin_test_matching_race_OBJS) 
-DEPS= $(mst_test_pingpong_DEPS) \
+	 $(nin_test_matching_race_OBJS)
+DEPS=$(mst_test_pingpong_DEPS) \
 	$(mst_test_hypre_parasails_DEPS) \
 	$(mst_test_units_DEPS) \
 	$(nin_test_matching_race_DEPS) 

@@ -286,7 +286,7 @@ static void gather_write_record(vector<send_trace_t*> &rtrace_vec)
   if (my_rank != 0) goto end;
 
   sprintf(path, "%s.%d.mst", bin_name, getpid());
-  fd = mst_open(path, O_WRONLY | O_CREAT, S_IRUSR | S_IWUSR);
+  fd = mst_open(path, O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
   sprintf(line, "procs: %d\n", commworld_size);
   mst_write(path, fd, line, strlen(line));
   sprintf(line, "delta min: %f, delta max: %f \n", delta_min, delta_max);

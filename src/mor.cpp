@@ -217,7 +217,7 @@ static void gather_write_record(vector<msg_id> &rtrace_vec)
 #else
   sprintf(path, "%s.%d.mor", mor_bin_name, getpid());
 #endif
-  fd = mst_open(path, O_WRONLY | O_CREAT, S_IRUSR | S_IWUSR);
+  fd = mst_open(path, O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
   sprintf(line, "procs: %d\n", mor_size);
   mst_write(path, fd, line, strlen(line));
   wsize += strlen(line);

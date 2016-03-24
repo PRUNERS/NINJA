@@ -61,29 +61,58 @@ using namespace std;
 
 pthread_t nin_nosie_thread;
 static unordered_map<MPI_Request, nin_delayed_send_request*> pending_send_request_to_ds_request_umap;
+static unordered_map<MPI_Request, int> pending_recv_request_umap;
+static int request_buffer_length = 128;
+static MPI_Request *request_buffer; /*TODO: Make this buffer more adaptive size*/
 static unordered_map<MPI_Request, nin_delayed_send_request*> completed_send_request_to_ds_request_umap;
 int counter=0;
 
+static int next_comm_id = 0;
+#define COMM_ID_CHAR_LEN (128)
+static char comm_id_char[COMM_ID_CHAR_LEN];
+static void nin_set_comm_id(MPI_Comm comm)
+{
+  comm_id_char[0] = next_comm_id++;
+  MPI_Comm_set_name(comm, comm_id_char);
+  return;
+}
+
+static int nin_get_comm_id(MPI_Comm comm)
+{
+  int length;
+  MPI_Comm_get_name(comm, comm_id_char, &length);
+  return (int)comm_id_char[0];
+}
 
 static void nin_init(int *argc, char ***argv)
 {
+  int size;
   int ret;
   NIN_Init();
   signal(SIGSEGV, SIG_DFL);
   ret = pthread_create(&nin_nosie_thread, NULL, run_delayed_send, NULL);
   NIN_init_ndrand();
-  ninj_fc_init();
+  ninj_fc_init(*argc, *argv);
 
+  memset(comm_id_char, 0, COMM_ID_CHAR_LEN);
+  nin_set_comm_id(MPI_COMM_WORLD);
 
+  MPI_Comm_size(MPI_COMM_WORLD, &size);
+  request_buffer_length = size;
+  request_buffer = (MPI_Request*)malloc(sizeof(MPI_Request) * request_buffer_length);
+  
   return;
 }
 
 static void nin_send_request_completed(int count, MPI_Request *requests)
 {
+  /*Note: each of requests can be send request or recv request*/
   for (int i = 0; i < count; i++) {
     nin_delayed_send_request *ds_req;
     if (pending_send_request_to_ds_request_umap.find(requests[i])
-	== pending_send_request_to_ds_request_umap.end()) continue;
+	== pending_send_request_to_ds_request_umap.end()) {
+      continue;
+    }
 
     ds_req = pending_send_request_to_ds_request_umap.at(requests[i]);
     if (ds_req->is_buffered) {
@@ -91,7 +120,7 @@ static void nin_send_request_completed(int count, MPI_Request *requests)
     }
     free(ds_req);
     if(!pending_send_request_to_ds_request_umap.erase(requests[i])) {
-      NIN_DBG("Request: %p is not registered", requests[i]);
+      NIN_DBG("Request: %p is not registered", (void*)requests[i]);
     }
     PMPI_WRAP(PMPI_Request_free(&requests[i]), __func__);    
   }
@@ -139,14 +168,16 @@ static int nin_is_all_started(int count, MPI_Request *requests)
   return NIN_REQUEST_STARTED;
 }
 
-static size_t ninj_get_delay(int count, MPI_Datatype datatype, int src, int *delay_flag, double *send_time)
+static size_t ninj_get_delay(int count, MPI_Datatype datatype, int src, int tag, MPI_Comm comm, int *delay_flag, double *send_time)
 {
   size_t msg_size;
   int dt_size;
+  int comm_id;
   PMPI_WRAP(PMPI_Type_size(datatype, &dt_size), "MPI_Type_size");
   msg_size = dt_size * count;
-  ninj_fc_report_send((size_t)msg_size);
-  ninj_fc_get_delay(src, delay_flag, send_time);
+  comm_id = nin_get_comm_id(comm);
+  ninj_fc_report_send((size_t)msg_size, tag, comm_id);
+  ninj_fc_get_delay(src, tag, comm_id, delay_flag, send_time);
   return msg_size;
 }
 
@@ -198,7 +229,7 @@ _EXTERN_C_ int MPI_Irsend(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg
     void* send_buffer = NULL;
     int is_buffered;
 
-    msg_size =  ninj_get_delay(arg_1, arg_2, arg_3, &delay_flag, &send_time);
+    msg_size =  ninj_get_delay(arg_1, arg_2, arg_3, arg_4, arg_5, &delay_flag, &send_time);
     if (!delay_flag) {
       PMPI_WRAP(_wrap_py_return_val = PMPI_Irsend(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6), __func__);
       return _wrap_py_return_val;
@@ -218,7 +249,7 @@ _EXTERN_C_ int MPI_Isend(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_
     double send_time;
     void* send_buffer = NULL;
     int is_buffered;
-    msg_size =  ninj_get_delay(arg_1, arg_2, arg_3, &delay_flag, &send_time);
+    msg_size =  ninj_get_delay(arg_1, arg_2, arg_3, arg_4, arg_5, &delay_flag, &send_time);
     if (!delay_flag) {
       PMPI_WRAP(_wrap_py_return_val = PMPI_Isend(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6), __func__);
       return _wrap_py_return_val;
@@ -292,7 +323,7 @@ _EXTERN_C_ int MPI_Issend(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg
     void* send_buffer = NULL;
     int is_buffered;
 
-    msg_size =  ninj_get_delay(arg_1, arg_2, arg_3, &delay_flag, &send_time);
+    msg_size =  ninj_get_delay(arg_1, arg_2, arg_3, arg_4, arg_5, &delay_flag, &send_time);
     if (!delay_flag) {
       PMPI_WRAP(_wrap_py_return_val = PMPI_Issend(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6), __func__);
       return _wrap_py_return_val;
@@ -313,7 +344,7 @@ _EXTERN_C_ int MPI_Ibsend(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg
     void* send_buffer = NULL;
     int is_buffered;
 
-    msg_size =  ninj_get_delay(arg_1, arg_2, arg_3, &delay_flag, &send_time);
+    msg_size =  ninj_get_delay(arg_1, arg_2, arg_3, arg_4, arg_5, &delay_flag, &send_time);
     if (!delay_flag) {
       PMPI_WRAP(_wrap_py_return_val = PMPI_Ibsend(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6), __func__);
       return _wrap_py_return_val;
@@ -404,9 +435,6 @@ _EXTERN_C_ int MPI_Ssend_init(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype
 }
 
 
-
-
-
 /* ================== C Wrappers for MPI_Sendrecv ================== */
 _EXTERN_C_ int PMPI_Sendrecv(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, int arg_3, int arg_4, void *arg_5, int arg_6, MPI_Datatype arg_7, int arg_8, int arg_9, MPI_Comm arg_10, MPI_Status *arg_11);
 _EXTERN_C_ int MPI_Sendrecv(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, int arg_3, int arg_4, void *arg_5, int arg_6, MPI_Datatype arg_7, int arg_8, int arg_9, MPI_Comm arg_10, MPI_Status *arg_11) { 
@@ -463,12 +491,19 @@ _EXTERN_C_ int MPI_Test(MPI_Request *arg_0, int *arg_1, MPI_Status *arg_2) {
       *arg_1 = 0;
       return MPI_SUCCESS;
     }
+    request_buffer[0] = *arg_0;
     PMPI_WRAP(_wrap_py_return_val = PMPI_Test(arg_0, arg_1, arg_2), __func__);
     if (is_started == NIN_REQUEST_STARTED && *arg_1 == 1) {
+      /*If is_started == NIN_REQUEST_STARTED means send or recv request */
       /* TODO: If this request came 
 	           from Isend,     then *arg_0 = MPI_REQUEST_NULL
 	           from send_init, then do nothing*/
       nin_send_request_completed(1, arg_0);
+    }
+    if (pending_recv_request_umap.find(request_buffer[0]) != 
+	pending_recv_request_umap.end()) {
+      ninj_fc_report_recv();
+      pending_recv_request_umap.erase(request_buffer[0]);
     }
     return _wrap_py_return_val;
 }
@@ -495,9 +530,19 @@ _EXTERN_C_ int MPI_Testall(int arg_0, MPI_Request *arg_1, int *arg_2, MPI_Status
       *arg_2 = 0;
       return MPI_SUCCESS;
     }
+    for (int i = 0; i < arg_0; i++) {
+      request_buffer[i] = arg_1[i];
+    }
     PMPI_WRAP(_wrap_py_return_val = PMPI_Testall(arg_0, arg_1, arg_2, arg_3), __func__);
     if (is_started == NIN_REQUEST_STARTED && *arg_2 == 1) {
       nin_send_request_completed(arg_0, arg_1);
+    }
+    for (int i = 0; i < arg_0; i++) {
+      if (pending_recv_request_umap.find(request_buffer[i]) != 
+	  pending_recv_request_umap.end()) {
+	ninj_fc_report_recv();
+	pending_recv_request_umap.erase(request_buffer[i]);
+      }
     }
     return _wrap_py_return_val;
 }
@@ -640,6 +685,9 @@ _EXTERN_C_ int MPI_Allgather(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype 
     MPI_Request req;
     PMPI_WRAP(_wrap_py_return_val = PMPI_Iallgather(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, &req), __func__);
     MPI_Wait(&req, MPI_STATUS_IGNORE);
+    //    ninj_fc_check_in_flight_msg();
+  //  NIN_DBG("comm_id: %d", comm_id_char[0])
+
     //    PMPI_WRAP(_wrap_py_return_val = PMPI_Allgather(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6), __func__);
     return _wrap_py_return_val;
 }
@@ -673,6 +721,7 @@ _EXTERN_C_ int MPI_Allreduce(nin_mpi_const void *arg_0, void *arg_1, int arg_2, 
     PMPI_WRAP(_wrap_py_return_val = PMPI_Iallreduce(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, &req), __func__);
     //    -wrap_py_return_val = MPI_Iallreduce(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, &req);
     _wrap_py_return_val = MPI_Wait(&req, MPI_STATUS_IGNORE);
+    ninj_fc_check_in_flight_msg(arg_5);
     //PMPI_WRAP(_wrap_py_return_val = PMPI_Allreduce(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5), __func__);
     return _wrap_py_return_val;
 }
@@ -745,6 +794,7 @@ _EXTERN_C_ int MPI_Barrier(MPI_Comm arg_0) {
     MPI_Request req;
     PMPI_WRAP(_wrap_py_return_val = PMPI_Ibarrier(arg_0, &req), __func__);
     MPI_Wait(&req, MPI_STATUS_IGNORE);
+    ninj_fc_check_in_flight_msg(arg_0);
     //    PMPI_WRAP(_wrap_py_return_val = PMPI_Barrier(arg_0), __func__);
     return _wrap_py_return_val;
 }
@@ -863,6 +913,7 @@ _EXTERN_C_ int PMPI_Comm_create(MPI_Comm arg_0, MPI_Group arg_1, MPI_Comm *arg_2
 _EXTERN_C_ int MPI_Comm_create(MPI_Comm arg_0, MPI_Group arg_1, MPI_Comm *arg_2) { 
     int _wrap_py_return_val = 0;
     PMPI_WRAP(_wrap_py_return_val = PMPI_Comm_create(arg_0, arg_1, arg_2), __func__);
+    nin_set_comm_id(*arg_2);
     return _wrap_py_return_val;
 }
 
@@ -871,6 +922,7 @@ _EXTERN_C_ int PMPI_Comm_dup(MPI_Comm arg_0, MPI_Comm *arg_1);
 _EXTERN_C_ int MPI_Comm_dup(MPI_Comm arg_0, MPI_Comm *arg_1) { 
     int _wrap_py_return_val = 0;
     PMPI_WRAP(_wrap_py_return_val = PMPI_Comm_dup(arg_0, arg_1), __func__);
+    nin_set_comm_id(*arg_1);
     return _wrap_py_return_val;
 }
 
@@ -945,6 +997,7 @@ _EXTERN_C_ int PMPI_Comm_split(MPI_Comm arg_0, int arg_1, int arg_2, MPI_Comm *a
 _EXTERN_C_ int MPI_Comm_split(MPI_Comm arg_0, int arg_1, int arg_2, MPI_Comm *arg_3) { 
     int _wrap_py_return_val = 0;
     PMPI_WRAP(_wrap_py_return_val = PMPI_Comm_split(arg_0, arg_1, arg_2, arg_3), __func__);
+    nin_set_comm_id(*arg_3);
     return _wrap_py_return_val;
 }
 
@@ -1450,6 +1503,7 @@ _EXTERN_C_ int MPI_Finalize() {
     nin_thread_input.enqueue(&ds_req);
     pthread_join(nin_nosie_thread, NULL);
     //    NIN_DBG("MPI finalizing: joined");
+    ninj_fc_finalize();
     PMPI_WRAP(_wrap_py_return_val = PMPI_Finalize(), __func__);
     return _wrap_py_return_val;
 }
@@ -1794,6 +1848,7 @@ _EXTERN_C_ int MPI_Irecv(void *arg_0, int arg_1, MPI_Datatype arg_2, int arg_3, 
     int _wrap_py_return_val = 0;
     //    NIN_DBG("%s called", __func__);
     PMPI_WRAP(_wrap_py_return_val = PMPI_Irecv(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6), __func__);
+    pending_recv_request_umap[*arg_6] = 1;
     //    NIN_DBG("%s ended", __func__);
     return _wrap_py_return_val;
 }
