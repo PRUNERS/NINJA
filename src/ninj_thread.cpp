@@ -34,13 +34,19 @@ static void sleep_wait()
 
 static void add_delayed_send_request(nin_delayed_send_request *ds_req)
 {
-  double send_time = ds_req->send_time;
-  while (ordered_delayed_send_request_map.find(send_time) != 
-	 ordered_delayed_send_request_map.end()) {
-    send_time += 1.0/1e6;
+  if (!ds_req->is_final) {
+    double send_time = ds_req->send_time;
+    while (ordered_delayed_send_request_map.find(send_time) != 
+	   ordered_delayed_send_request_map.end()) {
+      send_time += 1.0/1e6;
+    }
+    ds_req->send_time = send_time;
+    ordered_delayed_send_request_map[ds_req->send_time] = ds_req;
+  } else {
+    /*For now, specify big enough latecy to be abel to put this request at the end of queue/map  */
+    double send_time = NIN_get_time() * 2; 
+    ordered_delayed_send_request_map[send_time] = ds_req;
   }
-  ds_req->send_time = send_time;
-  ordered_delayed_send_request_map[ds_req->send_time] = ds_req;
   return;
 }
 

@@ -24,9 +24,8 @@ int mst_open(const char* file, int flags, mode_t  mode)
   }
 
   if (fd < 0) {
-    fprintf(stderr, "Opening file: open(%s) errno=%d %m @ %s:%d",
-            file, errno, __FILE__, __LINE__
-	    );
+    fprintf(stderr, "Opening file: open(%s) errno=%d @ %s:%d %m\n",
+            file, errno, __FILE__, __LINE__);
 
     /* try again */
     int tries = MST_OPEN_TRIES;
@@ -42,7 +41,7 @@ int mst_open(const char* file, int flags, mode_t  mode)
 
     /* if we still don't have a valid file, consider it an error */
     if (fd < 0) {
-      fprintf(stderr, "Opening file: open(%s) errno=%d %m @ %s:%d",
+      fprintf(stderr, "Opening file: open(%s) errno=%d @ %s:%d %m\n",
               file, errno, __FILE__, __LINE__
 	      );
     }
@@ -60,7 +59,7 @@ int mst_close(const char* file, int fd)
   /* now close the file */
   if (close(fd) != 0) {
     /* hit an error, print message */
-    fprintf(stderr, "Closing file descriptor %d for file %s: errno=%d %m @ %s:%d",
+    fprintf(stderr, "Closing file descriptor %d for file %s: errno=%d @ %s:%d %m",
             fd, file, errno, __FILE__, __LINE__
 	    );
     return 1;
@@ -80,7 +79,7 @@ ssize_t mst_write(const char* file, int fd, const void* buf, size_t size)
 	n += rc;
       } else if (rc == 0) {
 	/* something bad happened, print an error and abort */
-	fprintf(stderr, "Error writing %s: write(%d, %x, %ld) returned 0 @ %s:%d",
+	fprintf(stderr, "Error writing %s: write(%d, %p, %ld) returned 0 @ %s:%d",
 		file, fd, (char*) buf + n, size - n, __FILE__, __LINE__
 		);
 	exit(1);
@@ -94,12 +93,12 @@ ssize_t mst_write(const char* file, int fd, const void* buf, size_t size)
 	retries--;
 	if (retries) {
 	  /* print an error and try again */
-	  fprintf(stderr, "Error writing %s: write(%d, %x, %ld) errno=%d %m @ %s:%d",
+	  fprintf(stderr, "Error writing %s: write(%d, %p, %ld) errno=%d @ %s:%d %m",
 		  file, fd, (char*) buf + n, size - n, errno, __FILE__, __LINE__
 		  );
 	} else {
 	  /* too many failed retries, give up */
-	  fprintf(stderr, "Giving up write to %s: write(%d, %x, %ld) errno=%d %m @ %s:%d",
+	  fprintf(stderr, "Giving up write to %s: write(%d, %p, %ld) errno=%d @ %s:%d %m",
 		  file, fd, (char*) buf + n, size - n, errno, __FILE__, __LINE__
 		  );
 	  exit(1);
@@ -133,12 +132,12 @@ ssize_t mst_read(const char* file, int fd, void* buf, size_t size)
 	retries--;
 	if (retries) {
 	  /* print an error and try again */
-	  fprintf(stderr, "Error reading %s: read(%d, %x, %ld) errno=%d %m @ %s:%d",
+	  fprintf(stderr, "Error reading %s: read(%d, %p, %ld) errno=%d @ %s:%d %m",
 		  file, fd, (char*) buf + n, size - n, errno, __FILE__, __LINE__
 		  );
 	} else {
 	  /* too many failed retries, give up */
-	  fprintf(stderr, "Giving up read of %s: read(%d, %x, %ld) errno=%d %m @ %s:%d",
+	  fprintf(stderr, "Giving up read of %s: read(%d, %p, %ld) errno=%d @ %s:%d %m",
 		  file, fd, (char*) buf + n, size - n, errno, __FILE__, __LINE__
 		  );
 	  exit(1);
