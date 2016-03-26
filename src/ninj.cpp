@@ -55,6 +55,20 @@ _EXTERN_C_ void pmpi_init_thread__(MPI_Fint *required, MPI_Fint *provided, MPI_F
 #define NIN_REQUEST_NOT_STARTED (0)
 #define NIN_REQUEST_STARTED     (1)
 
+#define NIN_CONF_LOCAL_NOISE        "NIN_LOCAL_NOISE"
+#define NIN_CONF_LOCAL_NOISE_FREE   (0)
+#define NIN_CONF_LOCAL_NOISE_RANDOM (1)
+#define NIN_CONF_LOCAL_NOISE_CONST  (2)
+static int ninj_conf_local_noise = -1;
+#define NIN_CONF_LOCAL_NOISE_AMOUNT "NIN_LOCAL_NOISE_AMOUNT"
+static int ninj_conf_local_noise_amount_usec = -1;
+#define NIN_DO_NOISE \
+  do { \
+    if (ninj_conf_local_noise) { \
+      NIN_do_work(ninj_conf_local_noise_amount_usec); \
+    }						      \
+  } while(0)
+
 
 using namespace std;
 
@@ -84,15 +98,52 @@ static int nin_get_comm_id(MPI_Comm comm)
   return (int)comm_id_char[0];
 }
 
+static void ninj_stop_thread()
+{
+  nin_delayed_send_request ds_req;
+  //    NIN_DBG("MPI finalizing");
+  ds_req.is_final = 1;
+  nin_thread_input.enqueue(&ds_req);
+  pthread_join(nin_nosie_thread, NULL);
+  //    NIN_DBG("MPI finalizing: joined");
+  return;
+}
+
+static void ninj_init_variables()
+{
+  char *env;
+  if (NULL == (env = getenv(NIN_CONF_LOCAL_NOISE))) {
+    NIN_DBGI(0, "getenv failed: Please specify %s (%s:%s:%d)", NIN_CONF_LOCAL_NOISE, __FILE__, __func__, __LINE__);
+    exit(0);
+  }
+  ninj_conf_local_noise = atoi(env);
+  NIN_DBGI(0, " %s: %d", NIN_CONF_LOCAL_NOISE, ninj_conf_local_noise);
+  if (ninj_conf_local_noise) {
+    if (NULL == (env = getenv(NIN_CONF_LOCAL_NOISE_AMOUNT))) {
+      NIN_DBGI(0, "getenv failed: Please specify %s (%s:%s:%d)", NIN_CONF_LOCAL_NOISE_AMOUNT, __FILE__, __func__, __LINE__);
+      exit(0);
+    }
+    ninj_conf_local_noise_amount_usec = atoi(env);
+    NIN_DBGI(0, " %s: %d", NIN_CONF_LOCAL_NOISE_AMOUNT, ninj_conf_local_noise_amount_usec);
+  }
+  return;
+}
+
+
+
 static void nin_init(int *argc, char ***argv)
 {
   int size;
   int ret;
   NIN_Init();
-  signal(SIGSEGV, SIG_DFL);
   ret = pthread_create(&nin_nosie_thread, NULL, run_delayed_send, NULL);
   NIN_init_ndrand();
+  NIN_DBGI(0, "===========================================");
+  ninj_init_variables();
   ninj_fc_init(*argc, *argv);
+  NIN_DBGI(0, "===========================================");
+  
+
 
   memset(comm_id_char, 0, COMM_ID_CHAR_LEN);
   nin_set_comm_id(MPI_COMM_WORLD);
@@ -237,6 +288,7 @@ _EXTERN_C_ int MPI_Irsend(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg
     ninj_get_send_buffer(msg_size, arg_0, &send_buffer, &is_buffered);
     PMPI_WRAP(_wrap_py_return_val = PMPI_Rsend_init(send_buffer, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6), "MPI_Send_init");
     ninj_post_delayed_start(send_buffer, is_buffered, arg_3, arg_4, arg_6, send_time);
+    NIN_DO_NOISE;
     return _wrap_py_return_val;
 }
 
@@ -257,6 +309,7 @@ _EXTERN_C_ int MPI_Isend(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_
     ninj_get_send_buffer(msg_size, arg_0, &send_buffer, &is_buffered);
     PMPI_WRAP(_wrap_py_return_val = PMPI_Send_init(send_buffer, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6), "MPI_Send_init");
     ninj_post_delayed_start(send_buffer, is_buffered, arg_3, arg_4, arg_6, send_time);
+    NIN_DO_NOISE;
     return _wrap_py_return_val;
 }
 
@@ -331,6 +384,7 @@ _EXTERN_C_ int MPI_Issend(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg
     ninj_get_send_buffer(msg_size, arg_0, &send_buffer, &is_buffered);
     PMPI_WRAP(_wrap_py_return_val = PMPI_Ssend_init(send_buffer, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6), "MPI_Send_init");
     ninj_post_delayed_start(send_buffer, is_buffered, arg_3, arg_4, arg_6, send_time);
+    NIN_DO_NOISE;
     return _wrap_py_return_val;
 }
 
@@ -352,6 +406,7 @@ _EXTERN_C_ int MPI_Ibsend(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg
     ninj_get_send_buffer(msg_size, arg_0, &send_buffer, &is_buffered);
     PMPI_WRAP(_wrap_py_return_val = PMPI_Bsend_init(send_buffer, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6), "MPI_Send_init");
     ninj_post_delayed_start(send_buffer, is_buffered, arg_3, arg_4, arg_6, send_time);
+    NIN_DO_NOISE;
     return _wrap_py_return_val;
 }
 
@@ -363,6 +418,7 @@ _EXTERN_C_ int MPI_Bsend(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_
     MPI_Ibsend(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, &req);
     MPI_Wait(&req, MPI_STATUS_IGNORE);
     //    PMPI_WRAP(_wrap_py_return_val = PMPI_Bsend(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5), __func__);
+    NIN_DO_NOISE;
     return _wrap_py_return_val;
 }
 
@@ -375,6 +431,7 @@ _EXTERN_C_ int MPI_Rsend(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_
     MPI_Irsend(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, &req);
     MPI_Wait(&req, MPI_STATUS_IGNORE);
     //    PMPI_WRAP(_wrap_py_return_val = PMPI_Rsend(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5), __func__);
+    NIN_DO_NOISE;
     return _wrap_py_return_val;
 }
 
@@ -387,6 +444,7 @@ _EXTERN_C_ int MPI_Send(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2
     MPI_Isend(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, &req);
     MPI_Wait(&req, MPI_STATUS_IGNORE);
     //    PMPI_WRAP(_wrap_py_return_val = PMPI_Send(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5), __func__);
+    NIN_DO_NOISE;
     return _wrap_py_return_val;
 }
 
@@ -408,6 +466,7 @@ _EXTERN_C_ int PMPI_Bsend_init(nin_mpi_const void *arg_0, int arg_1, MPI_Datatyp
 _EXTERN_C_ int MPI_Bsend_init(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, int arg_3, int arg_4, MPI_Comm arg_5, MPI_Request *arg_6) { 
     int _wrap_py_return_val = 0;
     PMPI_WRAP(_wrap_py_return_val = PMPI_Bsend_init(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6), __func__);
+    NIN_DO_NOISE;
     return _wrap_py_return_val;
 }
 
@@ -416,6 +475,7 @@ _EXTERN_C_ int PMPI_Rsend_init(nin_mpi_const void *arg_0, int arg_1, MPI_Datatyp
 _EXTERN_C_ int MPI_Rsend_init(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, int arg_3, int arg_4, MPI_Comm arg_5, MPI_Request *arg_6) { 
     int _wrap_py_return_val = 0;
     PMPI_WRAP(_wrap_py_return_val = PMPI_Rsend_init(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6), __func__);
+    NIN_DO_NOISE;
     return _wrap_py_return_val;
 }
 /* ================== C Wrappers for MPI_Send_init ================== */
@@ -423,6 +483,7 @@ _EXTERN_C_ int PMPI_Send_init(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype
 _EXTERN_C_ int MPI_Send_init(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, int arg_3, int arg_4, MPI_Comm arg_5, MPI_Request *arg_6) { 
     int _wrap_py_return_val = 0;
     PMPI_WRAP(_wrap_py_return_val = PMPI_Send_init(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6), __func__);
+    NIN_DO_NOISE;
     return _wrap_py_return_val;
 }
 
@@ -431,6 +492,7 @@ _EXTERN_C_ int PMPI_Ssend_init(nin_mpi_const void *arg_0, int arg_1, MPI_Datatyp
 _EXTERN_C_ int MPI_Ssend_init(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype arg_2, int arg_3, int arg_4, MPI_Comm arg_5, MPI_Request *arg_6) { 
     int _wrap_py_return_val = 0;
     PMPI_WRAP(_wrap_py_return_val = PMPI_Ssend_init(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6), __func__);
+    NIN_DO_NOISE;
     return _wrap_py_return_val;
 }
 
@@ -445,6 +507,7 @@ _EXTERN_C_ int MPI_Sendrecv(nin_mpi_const void *arg_0, int arg_1, MPI_Datatype a
     MPI_Wait(&send_request, MPI_STATUS_IGNORE);
     MPI_Wait(&recv_request, arg_11);
     //    PMPI_WRAP(_wrap_py_return_val = PMPI_Sendrecv(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8, arg_9, arg_10, arg_11), __func__);
+    NIN_DO_NOISE;
     return _wrap_py_return_val;
 }
 
@@ -453,6 +516,7 @@ _EXTERN_C_ int PMPI_Sendrecv_replace(void *arg_0, int arg_1, MPI_Datatype arg_2,
 _EXTERN_C_ int MPI_Sendrecv_replace(void *arg_0, int arg_1, MPI_Datatype arg_2, int arg_3, int arg_4, int arg_5, int arg_6, MPI_Comm arg_7, MPI_Status *arg_8) { 
     int _wrap_py_return_val = 0;
     PMPI_WRAP(_wrap_py_return_val = PMPI_Sendrecv_replace(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8), __func__);
+    NIN_DO_NOISE;
     return _wrap_py_return_val;
 }
 
@@ -463,6 +527,7 @@ _EXTERN_C_ int PMPI_Start(MPI_Request *arg_0);
 _EXTERN_C_ int MPI_Start(MPI_Request *arg_0) { 
     int _wrap_py_return_val = 0;
     PMPI_WRAP(_wrap_py_return_val = PMPI_Start(arg_0), __func__);
+    NIN_DO_NOISE;
     return _wrap_py_return_val;
 }
 
@@ -471,6 +536,7 @@ _EXTERN_C_ int PMPI_Startall(int arg_0, MPI_Request *arg_1);
 _EXTERN_C_ int MPI_Startall(int arg_0, MPI_Request *arg_1) { 
     int _wrap_py_return_val = 0;
     PMPI_WRAP(_wrap_py_return_val = PMPI_Startall(arg_0, arg_1), __func__);
+    NIN_DO_NOISE;
     return _wrap_py_return_val;
 }
 
@@ -489,6 +555,7 @@ _EXTERN_C_ int MPI_Test(MPI_Request *arg_0, int *arg_1, MPI_Status *arg_2) {
     int is_started = nin_is_started(arg_0);
     if (is_started == NIN_REQUEST_NOT_STARTED) {
       *arg_1 = 0;
+      NIN_DO_NOISE;
       return MPI_SUCCESS;
     }
     request_buffer[0] = *arg_0;
@@ -505,6 +572,7 @@ _EXTERN_C_ int MPI_Test(MPI_Request *arg_0, int *arg_1, MPI_Status *arg_2) {
       ninj_fc_report_recv();
       pending_recv_request_umap.erase(request_buffer[0]);
     }
+    NIN_DO_NOISE;
     return _wrap_py_return_val;
 }
 
@@ -517,6 +585,7 @@ _EXTERN_C_ int MPI_Wait(MPI_Request *arg_0, MPI_Status *arg_1) {
       _wrap_py_return_val = MPI_Test(arg_0, &flag, arg_1);
     }
     //PMPI_WRAP(_wrap_py_return_val = PMPI_Request_free(arg_0), __func__);
+    NIN_DO_NOISE;
     return _wrap_py_return_val;
 }
 
@@ -528,6 +597,7 @@ _EXTERN_C_ int MPI_Testall(int arg_0, MPI_Request *arg_1, int *arg_2, MPI_Status
     int is_started = nin_is_all_started(arg_0, arg_1);
     if (is_started == NIN_REQUEST_NOT_STARTED) {
       *arg_2 = 0;
+      NIN_DO_NOISE;
       return MPI_SUCCESS;
     }
     for (int i = 0; i < arg_0; i++) {
@@ -544,6 +614,7 @@ _EXTERN_C_ int MPI_Testall(int arg_0, MPI_Request *arg_1, int *arg_2, MPI_Status
 	pending_recv_request_umap.erase(request_buffer[i]);
       }
     }
+    NIN_DO_NOISE;
     return _wrap_py_return_val;
 }
 
@@ -556,6 +627,7 @@ _EXTERN_C_ int MPI_Waitall(int arg_0, MPI_Request *arg_1, MPI_Status *arg_2) {
       _wrap_py_return_val = MPI_Testall(arg_0, arg_1, &flag, arg_2);
     }
     //    PMPI_WRAP(_wrap_py_return_val = PMPI_Waitall(arg_0, arg_1, arg_2), __func__);
+    NIN_DO_NOISE;
     return _wrap_py_return_val;
 }
 
@@ -576,6 +648,7 @@ _EXTERN_C_ int MPI_Testany(int arg_0, MPI_Request *arg_1, int *arg_2, int *arg_3
       }
     }
     //    PMPI_WRAP(_wrap_py_return_val = PMPI_Testany(arg_0, arg_1, arg_2, arg_3, arg_4), __func__);
+    NIN_DO_NOISE;
     return _wrap_py_return_val;
 }
 
@@ -588,6 +661,7 @@ _EXTERN_C_ int MPI_Waitany(int arg_0, MPI_Request *arg_1, int *arg_2, MPI_Status
     while(!flag) {
       MPI_Testany(arg_0, arg_1, arg_2, &flag, arg_3);
     }
+    NIN_DO_NOISE;
     return _wrap_py_return_val;
 }
 
@@ -609,6 +683,7 @@ _EXTERN_C_ int MPI_Testsome(int arg_0, MPI_Request *arg_1, int *arg_2, int *arg_
     }
     *arg_2 = index;
     //    PMPI_WRAP(_wrap_py_return_val = PMPI_Testsome(arg_0, arg_1, arg_2, arg_3, arg_4), __func__);
+    NIN_DO_NOISE;
     return _wrap_py_return_val;
 }
 
@@ -622,6 +697,7 @@ _EXTERN_C_ int MPI_Waitsome(int arg_0, MPI_Request *arg_1, int *arg_2, int *arg_
       if (*arg_2 > 0) break;
     }
     //    PMPI_WRAP(_wrap_py_return_val = PMPI_Waitsome(arg_0, arg_1, arg_2, arg_3, arg_4), __func__);
+    NIN_DO_NOISE;
     return _wrap_py_return_val;
 }
 
@@ -635,6 +711,7 @@ _EXTERN_C_ int MPI_Probe(int arg_0, int arg_1, MPI_Comm arg_2, MPI_Status *arg_3
       _wrap_py_return_val = MPI_Iprobe(arg_0, arg_1, arg_2, &flag, arg_3);
     }
     //    PMPI_WRAP(_wrap_py_return_val = PMPI_Probe(arg_0, arg_1, arg_2, arg_3), __func__);
+    NIN_DO_NOISE;
     return _wrap_py_return_val;
 }
 
@@ -643,6 +720,7 @@ _EXTERN_C_ int PMPI_Iprobe(int arg_0, int arg_1, MPI_Comm arg_2, int *flag, MPI_
 _EXTERN_C_ int MPI_Iprobe(int arg_0, int arg_1, MPI_Comm arg_2, int *flag, MPI_Status *arg_4) { 
     int _wrap_py_return_val = 0;
     PMPI_WRAP(_wrap_py_return_val = PMPI_Iprobe(arg_0, arg_1, arg_2, flag, arg_4), __func__);
+    NIN_DO_NOISE;
     return _wrap_py_return_val;
 }
 
@@ -664,6 +742,8 @@ _EXTERN_C_ int MPI_Iprobe(int arg_0, int arg_1, MPI_Comm arg_2, int *flag, MPI_S
 _EXTERN_C_ int PMPI_Abort(MPI_Comm arg_0, int arg_1);
 _EXTERN_C_ int MPI_Abort(MPI_Comm arg_0, int arg_1) { 
     int _wrap_py_return_val = 0;
+    pthread_t nin_nosie_thread;
+    ninj_stop_thread();
     PMPI_WRAP(_wrap_py_return_val = PMPI_Abort(arg_0, arg_1), __func__);
     return _wrap_py_return_val;
 }
@@ -1497,12 +1577,7 @@ _EXTERN_C_ int MPI_File_write_shared(MPI_File arg_0, nin_mpi_const void *arg_1, 
 _EXTERN_C_ int PMPI_Finalize();
 _EXTERN_C_ int MPI_Finalize() { 
     int _wrap_py_return_val = 0;
-    nin_delayed_send_request ds_req;
-    //    NIN_DBG("MPI finalizing");
-    ds_req.is_final = 1;
-    nin_thread_input.enqueue(&ds_req);
-    pthread_join(nin_nosie_thread, NULL);
-    //    NIN_DBG("MPI finalizing: joined");
+    ninj_stop_thread();
     ninj_fc_finalize();
     PMPI_WRAP(_wrap_py_return_val = PMPI_Finalize(), __func__);
     return _wrap_py_return_val;
@@ -1807,6 +1882,7 @@ _EXTERN_C_ int MPI_Init_thread(int *arg_0, char ***arg_1, int arg_2, int *arg_3)
       required = arg_2;
     }
     PMPI_WRAP(_wrap_py_return_val = PMPI_Init_thread(arg_0, arg_1, required, arg_3), __func__);
+    signal(SIGSEGV, SIG_DFL);
     if (MPI_THREAD_SERIALIZED > *arg_3) {
       NIN_DBG("NIN requires MPI_THREAD_SERIALIZED or higher: required:%d provided:%d (MPI_THREAD_SERIALIZED: %d)", 
 	      required, *arg_3, MPI_THREAD_SERIALIZED);

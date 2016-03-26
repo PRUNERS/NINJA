@@ -27,6 +27,7 @@ double NIN_get_time();
 int NIN_init_ndrand();
 int NIN_init_rand(int seed);
 int NIN_get_rand(int max);
+void NIN_do_work(int usec);
 
 #endif
 

@@ -136,7 +136,7 @@ static void sr_communication(int send_count, int *dests, int recv_count, int sen
       mst_test_dbg_print("Wrong matching detected: recv_val: %d, send_val: %d at loop %d", 
 			 recv_vals[i], send_val, loop_id);
       MPI_Abort(MPI_COMM_WORLD, 0);
-      exit(1);
+      exit(0);
     }
   }
   free(send_requests);
@@ -220,6 +220,7 @@ static void ssr(int num_patterns, int interval_usec, int loop_count, int is_safe
 	  if (recv_vals[k] != send_val) {
 	    mst_test_dbg_print("Wrong matching detected: recv_val: %d, send_val: %d at loop %d", 
 			       recv_vals[k], send_val, loop_id);
+	    MPI_Abort(MPI_COMM_WORLD, 0);
 	    exit(0);
 	  }
 	}
@@ -264,8 +265,10 @@ int main(int argc, char **argv)
     printf("***************************\n");
     fflush(stdout);
   }    
-    
+
+  double start, end;
   MPI_Barrier(MPI_COMM_WORLD);
+  start = get_time();
   switch(nin_mu_type) {
   case NIN_MU_TYPE_SR:
     sr(nin_num_patterns, nin_interval_usec, nin_num_loops, nin_is_safe);
@@ -277,9 +280,11 @@ int main(int argc, char **argv)
     if(my_rank==0) print_usage();
     exit(0);
   }
-
-  
+  MPI_Barrier(MPI_COMM_WORLD);
+  end = get_time();
+  if (my_rank == 0) {
+    mst_test_dbg_print("Time: %f", end - start);
+  }
   MPI_Finalize();
-
   return 0;
 }

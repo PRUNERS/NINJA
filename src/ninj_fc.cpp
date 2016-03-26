@@ -40,7 +40,7 @@
 
 #define NINJ_FC_THREAD_OVERHEAD_SEC (0.000050)
 
-#define NINJ_FC_MSG_ID(tag, comm_id) (size_t)(tag << 8 + comm_id)
+#define NINJ_FC_MSG_ID(tag, comm_id) (size_t)(tag * 10000 + comm_id)
 
 
 using namespace std;
@@ -219,9 +219,22 @@ static double ninj_fc_get_time_of_packet_transmit(int num_packets)
 
 static double ninj_fc_get_time_of_active_delayed_transmit(int message_id, double current_time)
 {
-  int delay_index = matching_id_to_active_noise_index_umap[message_id];
-  double delay = matching_id_to_delays_umap[message_id]->at(delay_index);
-  NIN_DBG("Active delay: %f", delay);
+  vector<double> *delay_vec;
+  double delay = 0;
+  int delay_index;
+
+  if (matching_id_to_delays_umap.find(message_id) != 
+      matching_id_to_delays_umap.end()) {
+    delay_vec   = matching_id_to_delays_umap[message_id];
+    if (matching_id_to_active_noise_index_umap.find(message_id) != 
+	matching_id_to_active_noise_index_umap.end()) {
+      delay_index = matching_id_to_active_noise_index_umap[message_id];
+      if (delay_index < delay_vec->size()) {
+	delay = delay_vec->at(delay_index) * 1.2;
+      }
+    }
+  }
+  //  NIN_DBG("Active delay: %f", delay);
   return current_time + delay;
 }
 
@@ -246,12 +259,14 @@ static void ninj_fc_get_delay_model(int dest, int tag, int comm_id, int *delay_f
   int is_adjusted;
   ninj_fc_ring_buffer_head_progress();
   enqueued_packet_num = NINJ_FC_QUEUED_PACKET_NUM(ninj_fc_ring_buffer_head_index, ninj_fc_ring_buffer_tail_index);
-  message_id = NINJ_FC_MSG_ID(tag, comm_id);
 
+  message_id = NINJ_FC_MSG_ID(tag, comm_id);
+  
   if (enqueued_packet_num > ninj_fc_queue_length_threshold) {
-    *delay_flag = 1;
     //    *send_time = ninj_fc_get_time_of_packet_transmit(enqueued_packet_num - ninj_fc_queue_length_threshold);
-    *send_time = ninj_fc_get_delay_model_mode(message_id, current_time, enqueued_packet_num - ninj_fc_queue_length_threshold);
+
+      *send_time = ninj_fc_get_delay_model_mode(message_id, current_time, enqueued_packet_num - ninj_fc_queue_length_threshold);
+      *delay_flag = (*send_time == current_time)? 0:1;
   } else {
     *delay_flag = 0;
     *send_time = current_time;
@@ -316,7 +331,7 @@ static void ninj_fc_record_send_interval(double current_time_sec, int tag, int c
       vec = matching_id_to_send_intervals_umap[id];
     }
     delta = current_time_sec - previous_send_time;
-    NIN_DBGI(0, " %f (%d:%d) threshold: %f", delta, tag, comm_id, matching_id_to_min_delay_umap[id] + NINJ_FC_THREAD_OVERHEAD_SEC);
+    //    NIN_DBGI(0, " %f (%d:%d) threshold: %f", delta, tag, comm_id, matching_id_to_min_delay_umap[id] + NINJ_FC_THREAD_OVERHEAD_SEC);
     vec->push_back(delta);
     previous_send_times_umap[id] = current_time_sec;
     if (ninj_fc_model_mode == NIN_CONF_MODEL_ACTIVE) {
@@ -324,7 +339,7 @@ static void ninj_fc_record_send_interval(double current_time_sec, int tag, int c
 	int current_index = matching_id_to_active_noise_index_umap[id];
 	if (current_index + 1 < matching_id_to_delays_umap[id]->size()) {
 	  matching_id_to_active_noise_index_umap[id] = current_index + 1;
-	  NIN_DBGI(0, "index: %d", current_index  + 1);
+	  //	  NIN_DBGI(0, "index: %d", current_index  + 1);
 	}
       }	
     }
@@ -414,20 +429,28 @@ static void ninj_fc_write_learning_file()
       sprintf(line, "%f\n", interval_threshold);
       mst_write(ninj_fc_learning_file, fd, line, strlen(line));    
 
-      delay_vec = matching_id_to_delays_umap[matching_id];
-      sprintf(line, "%lu\n", delay_vec->size());
-      mst_write(ninj_fc_learning_file, fd, line, strlen(line));    
 
-      for (int i = 0; i < delay_vec->size(); i++) {
-	sprintf(line, "%f\n", delay_vec->at(i));
+      if (matching_id_to_delays_umap.find(matching_id) == 
+	  matching_id_to_delays_umap.end()) {
+	//	NIN_DBG("write vec 0");
+	sprintf(line, "0\n");
 	mst_write(ninj_fc_learning_file, fd, line, strlen(line));    
+      } else {
+	//	NIN_DBG("write vec N");
+	delay_vec = matching_id_to_delays_umap[matching_id];
+	sprintf(line, "%lu\n", delay_vec->size());
+	mst_write(ninj_fc_learning_file, fd, line, strlen(line));    
+	
+	for (int i = 0; i < delay_vec->size(); i++) {
+	  sprintf(line, "%f\n", delay_vec->at(i));
+	  mst_write(ninj_fc_learning_file, fd, line, strlen(line));    
+	}
       }
+      //      NIN_DBG("write vec ... finished");
     }
   }
   mst_close(ninj_fc_learning_file, fd);
   NIN_DBGI(0, "Learning file written to ./.ninj directory");
-
-
 
   return;
 }
@@ -444,7 +467,6 @@ void ninj_fc_init(int argc, char **argv)
   ninj_fc_ring_buffer_tail_index = 0;
   ninj_fc_mtu_transmit_time_usec = NINJ_FC_PACKET_TRANSMIT_MODEL(ninj_fc_mtu_size);
 
-  NIN_DBGI(0, "===========================================");
   if (NULL == (env = getenv(NIN_CONF_PATTERN))) {
     NIN_DBGI(0, "getenv failed: Please specify %s (%s:%s:%d)", NIN_CONF_PATTERN, __FILE__, __func__, __LINE__);
     exit(0);
@@ -482,7 +504,7 @@ void ninj_fc_init(int argc, char **argv)
       ninj_fc_read_learning_file();
     }
   }
-  NIN_DBGI(0, "===========================================");
+
 
 
 
