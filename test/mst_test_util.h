@@ -22,5 +22,7 @@ int init_rand(int seed);
 int init_ndrand();
 int get_rand(int max);
 int get_hash(int original_val, int max);
+void init_noise();
+void do_work(int usec);
 
 #endif

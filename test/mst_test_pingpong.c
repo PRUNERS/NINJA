@@ -46,6 +46,7 @@ int main(int argc, char **argv)
   int max = 134217728;
   //  for (i = 0, length=1024 * 1024 * 1024; i <= 20; i++, length = length / 2)
   for (i = 0, length=64; i <= 17; i++, length = length * 2)
+    //  for (i = 0, length=1; i <= 17; i++, length = length )
     //    for (i = 17, length=max; i > 0; i--, length = length / 2)
   {    
     if (vrank != 0 && vrank != 1) break;
@@ -79,10 +80,10 @@ int main(int argc, char **argv)
 	//	fprintf(stderr, "Recv\n");
 	//	mst_test_dbg_print("isend req: %p", send_req);
 	//	fprintf(stderr, "rank 0: IsGend: %d\n", j);
-	MPI_Wait(&send_req, NULL);
+	MPI_Wait(&send_req, MPI_STATUS_IGNORE);
 	//	fprintf(stderr, "rank 0: complte Send: %d; length: %d\n", j, length);
 	MPI_Irecv(recv, length / sizeof(int), MPI_INT,  (first + 1) % size, j, MPI_COMM_WORLD, &recv_req);
-	MPI_Wait(&recv_req, NULL);
+	MPI_Wait(&recv_req, MPI_STATUS_IGNORE);
 	//	fprintf(stderr, "rank 0: complte Recv: %d; length: %d\n", j, length);
 	//	fprintf(stderr, "rank 0: complte Recv: %d\n", j);
 	//	ee = get_dtime();
@@ -93,11 +94,11 @@ int main(int argc, char **argv)
 	//	fprintf(stderr, "%d(%f) bytesx2  %f usec %f MB/sec \n", length, length/(1000.0 * 1000.0), (e - s) * 1000 * 1000 , (length/(500.0 * 1000.0)) / (e - s), recv[0]);
       } else {
 	MPI_Irecv(recv, length / sizeof(int), MPI_INT, first, j, MPI_COMM_WORLD, &recv_req);
-	MPI_Wait(&recv_req, NULL);
+	MPI_Wait(&recv_req, MPI_STATUS_IGNORE);
 	//	fprintf(stderr, "rank 1: complte Recv: %d; length: %d\n", j, length);
 	MPI_Isend(send, length / sizeof(int), MPI_INT, first, j, MPI_COMM_WORLD, &send_req);
 	//	fprintf(stderr, "rank 1: Isend: %d\n", j);
-	MPI_Wait(&send_req, NULL);
+	MPI_Wait(&send_req, MPI_STATUS_IGNORE);
 	//	fprintf(stderr, "rank 1: complte Send: %d; length: %d: requ: %p\n", j, length, send_req);
       }
     }

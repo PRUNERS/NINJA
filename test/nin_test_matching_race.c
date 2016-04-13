@@ -159,14 +159,15 @@ static void sr(int num_patterns, int interval_usec, int loop_count, int is_safe)
 
 
   for (i = 0; i != loop_count; i++) {
-    mst_test_dbgi_print(my_rank, "loop: %d:", i);
+    mst_test_dbgi_print(my_rank, "loop: %d", i + 1);
     loop_id = i;
     for (j = 0; j < num_patterns; j++){
       send_val = increment;
       tag = (is_safe)? increment:0;
       sr_communication(send_counts[j], dests_list[j], recv_counts[j], send_val, tag, loop_id);
       increment++;
-      usleep(interval_usec);
+      //      do_work(interval_usec);
+      if(interval_usec>0) usleep(interval_usec);
     }
     MPI_Barrier(MPI_COMM_WORLD);
   }
@@ -197,7 +198,7 @@ static void ssr(int num_patterns, int interval_usec, int loop_count, int is_safe
   recv_vals     = (int*)malloc(sizeof(int) * size);
   
   for (i = 0; i != loop_count; i++) {
-    mst_test_dbgi_print(my_rank, "loop: %d:", i);
+    mst_test_dbgi_print(my_rank, "loop: %d", i + 1);
     loop_id = i;
     for (j = 0; j < num_patterns; j++){
       send_val = increment;
@@ -225,7 +226,8 @@ static void ssr(int num_patterns, int interval_usec, int loop_count, int is_safe
 	  }
 	}
       }
-      usleep(interval_usec);
+      //      do_work(interval_usec);
+      if(interval_usec>0) usleep(interval_usec);
     }
     MPI_Barrier(MPI_COMM_WORLD);
   }
@@ -243,6 +245,8 @@ int main(int argc, char **argv)
 
   MPI_Init(&argc, &argv);
   MPI_Comm_rank(MPI_COMM_WORLD, &my_rank);
+  
+  init_noise();
   
   if (argc != 6) {
     if(my_rank==0) print_usage();

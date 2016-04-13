@@ -1,0 +1,5 @@
+LD_PRELOAD=../lib/libninj.so NIN_PATTERN=0 srun -n 64 ./mst_test_hypre_parasails
+LD_PRELOAD=/g/g90/sato5/opt/lib/libninj.so NIN_PATTERN=1 NIN_RAND_RATIO=10 NIN_RAND_DELAY=100 srun -n 4 ./nin_test_matching_race 0 0 10 1 100
+LD_PRELOAD=/g/g90/sato5/opt/lib/libninj.so NIN_PATTERN=2 srun -n 4 ./nin_test_matching_race 1 0 1 2 100
+LD_PRELOAD=/g/g90/sato5/opt/lib/libninj.so NIN_PATTERN=2 NIN_MODEL_MODE=0 srun -n 4 ./nin_test_matching_race 1 0 2 3 10000
+LD_PRELOAD=/g/g90/sato5/opt/lib/libninj.so NIN_PATTERN=2  NIN_MODEL_MODE=1 NIN_LOCAL_NOISE=1 NIN_LOCAL_NOISE_AMOUNT=1000 srun -n 32 ./nin_test_matching_race 1 0 50 4 0

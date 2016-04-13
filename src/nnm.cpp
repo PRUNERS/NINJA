@@ -112,11 +112,12 @@ static void measure_net_noise(int src, int middle, int dest,
   double ts_1st_msg, ts_2nd_msg_previous, ts_2nd_msg;
   double current_time;
   double bperiod;
+  int is_first = 1;
   
-  if (length < 10) {
-    NIN_DBG("must be length > 10");
-    exit(0);
-  }
+  // if (length < 10) {
+  //   NIN_DBG("must be length > 10");
+  //   exit(0);
+  // }
 
   reqb = (MPI_Request*)malloc(sizeof(MPI_Request) * length);
   bbuf = (char**)malloc(sizeof(char*) * length);
@@ -196,7 +197,7 @@ static void measure_net_noise(int src, int middle, int dest,
 
 	Dm = ts_2nd_msg_previous - ts_1st_msg;
 	Dsd = Dm + (latency_sm + latency_md) - latency_sd;
-	if (Dsd > latency_sd * detour_th) {
+	if (Dsd > latency_sd * detour_th && !is_first) {
 	  detour_record_t *dr = (detour_record_t*)malloc(sizeof(detour_record_t));
 	  dr->ts     =  NIN_Wtime() - start;
 	  dr->detour = Dsd;
@@ -204,6 +205,7 @@ static void measure_net_noise(int src, int middle, int dest,
 	  record->detour_records_vec->push_back(dr);
 	  record->detour_count++;
 	}
+	is_first = 0;
       }
 
       MPI_Waitall(length, reqb, MPI_STATUS_IGNORE);
@@ -307,6 +309,7 @@ static void get_network_configuration(int *mtu, int *num_rail)
 
 static void do_statistics(nnm_record_t *record)
 {
+  int first_noise_exclusion = 1;
   double detour_sum = 0;
   double period_sum = 0;
   for (int i = 0; i < (int)record->detour_records_vec->size(); i++) {
@@ -444,6 +447,8 @@ static int diagnose_threshold(int group_id, int src, int mtu)
   nnm_record_t *record;
   int num_packet_threshold = 0;
   int recv;
+
+  int period_sec = 2 * 1e6;
   bytes = 1;
   usec = 0;
   //  for (int num_packet = 600; num_packet <= 1000; num_packet += 10) {
@@ -475,6 +480,45 @@ static int diagnose_threshold(int group_id, int src, int mtu)
   return recv;
 }
 
+#define BYTE_LIST_LEN (4)
+static int diagnose_threshold_sc16(int group_id, int src, int mtu)
+{
+  int bytes, usec;
+  int byte_list[BYTE_LIST_LEN] = {1, 2048, 2048 + 1, 2048 + 2048};
+  nnm_record_t *record;
+  int num_packet_threshold = 0;
+  int recv;
+
+  int period_sec = 2 * 1e6;
+  bytes = 1;
+  usec = 0;
+  //  for (int num_packet = 600; num_packet <= 1000; num_packet += 10) {
+  //  for (int num_packet = 10; num_packet <= 90; num_packet += 1) {
+  for (int i = 0; i < BYTE_LIST_LEN; i++) {
+      for (int num_packet = 1; num_packet <= 96; num_packet += 1) {
+
+      record = create_record_t();
+      measure_net_noise(src, src + 1, src + 2, lat_01, lat_12, lat_02, group_id, 1, 
+			num_packet, byte_list[i], usec, period_sec, record);
+      if (my_rank == src + 2) {
+	do_statistics(record);
+	// NIN_DBG("THR: usec: %d, num_packets:%d, bytes:%d, ratio:%f, delay:%f,  start:%f", usec, num_packet, bytes, record->delay_ratio,
+	//  	      record->ave_delay, record->ave_period_all);
+	NIN_DBG("THR: %d %d %d %f %f %f", usec, num_packet, byte_list[i], record->delay_ratio,
+		record->ave_delay, record->ave_period_all);
+	printf("THR: %d %d %d %f %f %f\n", usec, num_packet, byte_list[i], record->delay_ratio,
+		record->ave_delay, record->ave_period_all);
+	if (record->delay_ratio > 0.3 && num_packet_threshold == 0) {
+	  num_packet_threshold = num_packet;
+	}
+      }
+      free_record_t(record);
+      MPI_Allreduce(&num_packet_threshold, &recv, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+    }
+  }
+  return recv;
+}
+
 static void diagnose()
 {
   /*TODO: Process distribution check 
@@ -500,7 +544,8 @@ static void diagnose()
 
   if (group_id == 0) {
     src = group_id * 3;
-    num_packet_threshold    = diagnose_threshold(group_id, src, mtu);
+    //    num_packet_threshold    = diagnose_threshold(group_id, src, mtu);
+    num_packet_threshold    = diagnose_threshold_sc16(group_id, src, mtu);
     exit(0);
     packet_transmit_latency = diagnose_packet_process_latency(group_id, src, mtu, num_packet_threshold);    
   }

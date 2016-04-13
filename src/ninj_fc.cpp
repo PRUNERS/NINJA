@@ -35,10 +35,10 @@
 #define NINJ_FC_RING_BUFF_SIZE (1024 * 1024)
 #define NINJ_FC_QUEUE_CAPACITY (4)
 
-#define NINJ_FC_MODEL_PACKET_LATENCY    (0.2)  // in usec
-#define NINJ_FC_MODEL_PACKET_THROUGHPUT (312.5) // in bytes/usec e.g. (3.2GB/sec = 312.5 bytes/usec)
+#define NINJ_FC_MODEL_PACKET_LATENCY    (0.25)  // in usec
+#define NINJ_FC_MODEL_PACKET_THROUGHPUT (314.3) // in bytes/usec e.g. (3.2GB/sec = 312.5 bytes/usec)
 
-#define NINJ_FC_THREAD_OVERHEAD_SEC (0.000050)
+#define NINJ_FC_THREAD_OVERHEAD_SEC (0.000030)
 
 #define NINJ_FC_MSG_ID(tag, comm_id) (size_t)(tag * 10000 + comm_id)
 
@@ -238,19 +238,27 @@ static double ninj_fc_get_time_of_active_delayed_transmit(int message_id, double
   return current_time + delay;
 }
 
+
 static double ninj_fc_get_delay_model_mode(int message_id, double current_time, int num_packets)
 {
+  double send_time;
+
   switch(ninj_fc_model_mode) {
   case NIN_CONF_MODEL_PASSIVE:
-    return ninj_fc_get_time_of_packet_transmit(num_packets);
+    send_time = ninj_fc_get_time_of_packet_transmit(num_packets);
+    break;
   case NIN_CONF_MODEL_ACTIVE:
-    return ninj_fc_get_time_of_active_delayed_transmit(message_id, current_time);
+    send_time = ninj_fc_get_time_of_active_delayed_transmit(message_id, current_time);
+    break;
   default:
     NIN_DBGI(0, "No such mode: %d", ninj_fc_model_mode);
     exit(0);
   }
+  return send_time;
 }
 
+
+#define ENABLE_ML_PRINT
 static void ninj_fc_get_delay_model(int dest, int tag, int comm_id, int *delay_flag, double *send_time, double *base_time)
 {
   size_t message_id;
@@ -264,9 +272,9 @@ static void ninj_fc_get_delay_model(int dest, int tag, int comm_id, int *delay_f
   
   if (enqueued_packet_num > ninj_fc_queue_length_threshold) {
     //    *send_time = ninj_fc_get_time_of_packet_transmit(enqueued_packet_num - ninj_fc_queue_length_threshold);
-
-      *send_time = ninj_fc_get_delay_model_mode(message_id, current_time, enqueued_packet_num - ninj_fc_queue_length_threshold);
-      *delay_flag = (*send_time == current_time)? 0:1;
+    *send_time = ninj_fc_get_delay_model_mode(message_id, current_time, enqueued_packet_num - ninj_fc_queue_length_threshold);
+    *delay_flag = (*send_time == current_time)? 0:1;
+    //    if (*delay_flag) NIN_DBG("delay: %f", *send_time - current_time);
   } else {
     *delay_flag = 0;
     *send_time = current_time;
@@ -287,6 +295,12 @@ static void ninj_fc_get_delay_model(int dest, int tag, int comm_id, int *delay_f
   //   NIN_DBGI(0, "after cur: %f, send: %f, aj: %d", current_time, *send_time, is_adjusted);
   // }
   *base_time = (*delay_flag)? current_time:-1;
+
+#ifdef ENABLE_ML_PRINT
+  if (tag == 222) {
+    NIN_DBGI(48, "%f %f %f", current_time, *send_time, *send_time - current_time);
+  }
+#endif
   return;
 }
 
@@ -499,7 +513,11 @@ void ninj_fc_init(int argc, char **argv)
     ninj_fc_model_mode = atoi(env);
     NIN_DBGI(0, " %s: %d", NIN_CONF_MODEL_MODE, ninj_fc_model_mode);
 
-    sprintf(ninj_fc_learning_file, "./.ninj/%s.%d.nin", basename(argv[0]), nin_my_rank);
+    if (NULL == (env = getenv("NIN_DIR"))) {
+      NIN_DBGI(0, "getenv failed: Please specify %s (%s:%s:%d)", "NIN_DIR", __FILE__, __func__, __LINE__);
+      exit(0);
+    }
+    sprintf(ninj_fc_learning_file, "%s/%s.%d.nin", env, basename(argv[0]), nin_my_rank);
     if (ninj_fc_model_mode == NIN_CONF_MODEL_ACTIVE) {
       ninj_fc_read_learning_file();
     }
@@ -590,6 +608,8 @@ static void ninj_fc_update_delay_threshold(size_t matching_id, vector<double> *d
   for (int i = 0; i < delta_vec_size; i++) {
     delta = delta_vec->at(i);
     delta_part_sum += delta;
+        
+    //    if(matching_id == 2220000) NIN_DBGI(48, "delay: %f > %f", delta, delta_threshold);
     if (delta >= delta_threshold) {
       /*If separete send call detected, ... */
       if (delay_vec->size() > call_count) {
@@ -607,6 +627,7 @@ static void ninj_fc_update_delay_threshold(size_t matching_id, vector<double> *d
       delta_part_sum = 0;
     }
   }
+  delta_vec->clear();
 
 #if 0
   NIN_DBG("Threshold: %f", delta_threshold);
@@ -741,10 +762,9 @@ void ninj_fc_check_in_flight_msg(MPI_Comm comm)
     if (ninj_fc_msg_count_buff[NINJ_FC_SEND_COUNT] == ninj_fc_msg_count_buff[NINJ_FC_RECV_COUNT]) {
       ninj_fc_update_delay();  
       ninj_fc_clear_for_next_epoch();
-
-      //      NIN_DBGI(0, "No infligth");
+      //      NIN_DBGI(48, "No infligth");
     } else {
-      //      NIN_DBGI(0, "Infligth: %d %d", ninj_fc_msg_count[NINJ_FC_SEND_COUNT], ninj_fc_msg_count[NINJ_FC_RECV_COUNT]);
+      //      NIN_DBGI(48, "Infligth: %d %d", ninj_fc_msg_count[NINJ_FC_SEND_COUNT], ninj_fc_msg_count[NINJ_FC_RECV_COUNT]);
     }
   }
   return;

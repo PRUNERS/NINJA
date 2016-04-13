@@ -5,6 +5,37 @@
 
 #include "mst_test_util.h"
 
+#define LEN (2)
+int lpusec;
+int a[LEN];
+static void do_noise_work(int loops)
+{ 
+  int i;
+  for (i = 0; i < loops; i++) {
+    a[i % LEN] = 0;
+  }
+  return;
+}
+
+void init_noise()
+{ 
+  double start, end;
+  double usec;
+  int loops = 10 * 1000 * 1000 * 10;
+  start = get_time();
+  do_noise_work(loops);
+  end   = get_time();
+  usec = end * 1e6 - start * 1e6;
+  lpusec = (int)(loops/usec);
+  return;
+}
+
+void do_work(int usec)
+{
+  do_noise_work(lpusec * usec);
+  return;
+}
+
 double get_time(void)
 {
   double t;
