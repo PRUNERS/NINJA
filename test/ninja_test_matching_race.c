@@ -4,7 +4,7 @@
 #include <unistd.h>
 
 #include "mpi.h"
-#include "mst_test_util.h"
+#include "ninja_test_util.h"
 
 #define NIN_MU_TYPE_SR  (0)
 #define NIN_MU_TYPE_SSR (1)

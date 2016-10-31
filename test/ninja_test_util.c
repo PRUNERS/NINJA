@@ -3,7 +3,7 @@
 #include <unistd.h>
 #include <sys/time.h>
 
-#include "mst_test_util.h"
+#include "ninja_test_util.h"
 
 #define LEN (2)
 int lpusec;

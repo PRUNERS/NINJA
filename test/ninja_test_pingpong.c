@@ -4,7 +4,7 @@
 
 
 #include "mpi.h"
-#include "mst_test_util.h"
+#include "ninja_test_util.h"
 
 int my_rank;
 

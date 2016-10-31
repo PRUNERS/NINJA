@@ -5,7 +5,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-#include "mst_test_util.h"
+#include "ninja_test_util.h"
 
 #define FUNC_NAME_LEN (32)
 //#define NUM_TEST_MSG  (1024)

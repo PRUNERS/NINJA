@@ -114,7 +114,7 @@ static void ninj_init_variables()
   char *env;
   if (NULL == (env = getenv(NIN_CONF_LOCAL_NOISE))) {
     NIN_DBGI(0, "getenv failed: Please specify %s (%s:%s:%d)", NIN_CONF_LOCAL_NOISE, __FILE__, __func__, __LINE__);
-    exit(0);
+    exit(1);
   }
   ninj_conf_local_noise = atoi(env);
   NIN_DBGI(0, " %s: %d", NIN_CONF_LOCAL_NOISE, ninj_conf_local_noise);
@@ -706,7 +706,6 @@ _EXTERN_C_ int PMPI_Probe(int arg_0, int arg_1, MPI_Comm arg_2, MPI_Status *arg_
 _EXTERN_C_ int MPI_Probe(int arg_0, int arg_1, MPI_Comm arg_2, MPI_Status *arg_3) { 
     int _wrap_py_return_val = 0;
     int flag = 0;
-    //    NIN_DBG("=== %s called: %d ===", __func__, counter1);
     while(!flag) {
       _wrap_py_return_val = MPI_Iprobe(arg_0, arg_1, arg_2, &flag, arg_3);
     }

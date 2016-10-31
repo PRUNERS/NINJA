@@ -8,7 +8,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 
-#include "mst_test_util.h"
+#include "ninja_test_util.h"
 #include <stdlib.h>
 #include <assert.h>
 #include <math.h>
