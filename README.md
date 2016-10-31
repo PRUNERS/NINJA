@@ -4,16 +4,14 @@
 
 # Quick Start
 
-## Get source code
-
 ## Build Ninja
 
- use mvapich2-intel-2.1
- build hypre
- build ex5
- build ninja
+   autogen.py
+   configure --prefix=<path to installation directory>
 
 ## Run examples
+
+   LD_PRELOAD=<path to installation directory>/lib/libninja.so srun -n X a.out
 
 # Environmental valiables
 
@@ -29,6 +27,6 @@
        * `NIN_DIR`: Directory for send pattern learning files
  * `NIN_LOCAL_NOISE`:
      * `0`: Local noise free
-     * `2`: Constant local noise
+     * `1`: Constant local noise
        * `NIN_LOCAL_NOISE_AMOUNT`: Run CPU intensive work for <NIN_LOCAL_NOISE_AMOUN> usec after send/recv/matching function
 
