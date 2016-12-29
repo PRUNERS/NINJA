@@ -40,6 +40,8 @@
 
 #define NINJ_FC_THREAD_OVERHEAD_SEC (0.000030)
 
+#define NIN_SA (2.0)
+
 #define NINJ_FC_MSG_ID(tag, comm_id) (size_t)(tag * 10000 + comm_id)
 
 
@@ -229,7 +231,7 @@ static double ninj_fc_get_time_of_active_delayed_transmit(int message_id, double
 	matching_id_to_active_noise_index_umap.end()) {
       delay_index = matching_id_to_active_noise_index_umap[message_id];
       if (delay_index < delay_vec->size()) {
-	delay = delay_vec->at(delay_index) * 1.2;
+	delay = delay_vec->at(delay_index) * NIN_SA;
       }
     }
   }

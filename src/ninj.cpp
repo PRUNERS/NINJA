@@ -81,11 +81,12 @@ static MPI_Request *request_buffer; /*TODO: Make this buffer more adaptive size*
 static unordered_map<MPI_Request, nin_delayed_send_request*> completed_send_request_to_ds_request_umap;
 int counter=0;
 
-static int next_comm_id = 0;
+static int next_comm_id = 1;
 #define COMM_ID_CHAR_LEN (128)
 static char comm_id_char[COMM_ID_CHAR_LEN];
 static void nin_set_comm_id(MPI_Comm comm)
 {
+  if (comm == MPI_COMM_NULL) return;
   comm_id_char[0] = next_comm_id++;
   MPI_Comm_set_name(comm, comm_id_char);
   return;
@@ -93,6 +94,7 @@ static void nin_set_comm_id(MPI_Comm comm)
 
 static int nin_get_comm_id(MPI_Comm comm)
 {
+  if (comm == MPI_COMM_NULL) return -1;
   int length;
   MPI_Comm_get_name(comm, comm_id_char, &length);
   return (int)comm_id_char[0];
@@ -637,8 +639,13 @@ _EXTERN_C_ int MPI_Testany(int arg_0, MPI_Request *arg_1, int *arg_2, int *arg_3
     int _wrap_py_return_val = 0;
     int flag  = 0;
     MPI_Status stat;
+    int request_null_count = 0;
     *arg_3 = 0;
     for (int i = 0; i < arg_0; i++) {
+      if (arg_1[i] == MPI_REQUEST_NULL) {
+	request_null_count++;
+	continue;
+      }
       MPI_Test(&arg_1[i], &flag, &stat);
       if (flag) {
 	*arg_2 = i;
@@ -646,6 +653,9 @@ _EXTERN_C_ int MPI_Testany(int arg_0, MPI_Request *arg_1, int *arg_2, int *arg_3
 	if (arg_4 != MPI_STATUS_IGNORE) *arg_4 = stat;
 	break;
       }
+    }
+    if (request_null_count == arg_0) {
+      *arg_3 = 1;
     }
     //    PMPI_WRAP(_wrap_py_return_val = PMPI_Testany(arg_0, arg_1, arg_2, arg_3, arg_4), __func__);
     NIN_DO_NOISE;
@@ -658,6 +668,7 @@ _EXTERN_C_ int PMPI_Waitany(int arg_0, MPI_Request *arg_1, int *arg_2, MPI_Statu
 _EXTERN_C_ int MPI_Waitany(int arg_0, MPI_Request *arg_1, int *arg_2, MPI_Status *arg_3) { 
     int _wrap_py_return_val = 0;
     int flag = 0;
+    
     while(!flag) {
       MPI_Testany(arg_0, arg_1, arg_2, &flag, arg_3);
     }
@@ -673,7 +684,12 @@ _EXTERN_C_ int MPI_Testsome(int arg_0, MPI_Request *arg_1, int *arg_2, int *arg_
     int flag;
     MPI_Status stat;
     int index = 0;
+    int request_null_count;
     for (int i = 0; i < arg_0; i++) {
+      if (arg_1[i] == MPI_REQUEST_NULL) {
+	request_null_count++;
+	continue;
+      }
       MPI_Test(&arg_1[i], &flag, &stat);
       if (flag) {
 	arg_3[index] = i;
@@ -682,6 +698,9 @@ _EXTERN_C_ int MPI_Testsome(int arg_0, MPI_Request *arg_1, int *arg_2, int *arg_
       }
     }
     *arg_2 = index;
+    if (request_null_count == arg_0) {
+      *arg_2 = arg_0;
+    }
     //    PMPI_WRAP(_wrap_py_return_val = PMPI_Testsome(arg_0, arg_1, arg_2, arg_3, arg_4), __func__);
     NIN_DO_NOISE;
     return _wrap_py_return_val;

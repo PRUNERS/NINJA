@@ -1,6 +1,6 @@
-find . -name Makefile.in -exec rm -fr {} \; 
-find . -name .deps -exec rm -fr {} \;
-find . -name .libs -exec rm -fr {} \;
+find . -name Makefile.in -exec rm -fr {} \;  2> /dev/null
+find . -name .deps -exec rm -fr {} \; 2> /dev/null
+find . -name .libs -exec rm -fr {} \; 2> /dev/null
 rm Makefile 2> /dev/null
 rm ./configure 2> /dev/null
 rm ./config.h.in 2> /dev/null
