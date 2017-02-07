@@ -6,13 +6,12 @@
 
 ## Build Ninja
 
-
     $ autogen.py
     $ configure --prefix=<path to installation directory>
 
 ## Run examples
 
-   LD_PRELOAD=<path to installation directory>/lib/libninja.so srun -n X a.out
+    $ LD_PRELOAD=<path to installation directory>/lib/libninja.so srun -n <# procs> ./a.out
 
 # Environmental valiables
 
