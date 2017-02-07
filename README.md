@@ -7,8 +7,8 @@
 ## Build Ninja
 
 
-    autogen.py
-    configure --prefix=\<path to installation directory\>
+    $ autogen.py
+    $ configure --prefix=<path to installation directory>
 
 ## Run examples
 
