@@ -21,30 +21,27 @@ AC_SUBST([LIB_AGE], [0])
 
 
 #### Checks for programs.
-LX_FIND_MPI # TODO: AC_LANG_CASE([C++], ...) is not executed
-
+AC_LANG_PUSH(C)
+LX_FIND_MPI
+test "x$have_C_mpi" = xyes || AC_MSG_ERROR([Failed to find C MPI Wrapper.])
+AC_LANG_POP()
+AC_LANG_PUSH(C++)
+LX_FIND_MPI
+test "x$have_CXX_mpi" = xyes || AC_MSG_ERROR([Failed to find C++ MPI Wrapper.])
+AC_LANG_POP()
+AC_LANG_PUSH(Fortran)
+LX_FIND_MPI
+test "x$have_F_mpi" = xyes || AC_MSG_ERROR([Failed to find Fortran MPI Wrapper.])
+AC_LANG_POP()
 
 AC_CHECK_PROGS([MAKE], [make], [:])
 if test "$MAKE" = :; then
    AC_MSG_ERROR([This package needs make.])
 fi
 
-#AC_CHECK_PROGS([MPICC], [mpicc], [:])
-if test "$MPICC" = :; then
-   AC_MSG_ERROR([This package needs mpicc.])
-fi
-AC_PROG_CC([mpicc])
-AM_PROG_CC_C_O([mpicc])
-AC_PROG_CXX([mpicc])
-AC_SUBST([CC], [$MPICC])
-AC_SUBST([CXX],[$MPICC])
-
-
-#AC_ARG_VAR([CC], [CC for compile])
-
 #### Checks for libraries.
 mpi_version3="yes"
-AC_CHECK_LIB([mpi], [PMPI_Ibarrier], [], [mpi_version3="no"])
+AC_CHECK_LIB([mpi], [PMPI_Ibarrier], [], [mpi_version3="no"], ["$MPI_CLDFLAGS"])
 if test "$mpi_version3" = "no"; then
    AC_MSG_ERROR([This package needs MPI-3.])
 fi
