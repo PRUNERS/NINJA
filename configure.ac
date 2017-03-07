@@ -7,15 +7,15 @@ AC_INIT([NINJA],
         m4_esyscmd([git describe --always | awk '/.*/ {sub(/^v/, ""); printf "%s",$1; exit}']), 
 	[kento@llnl.gov])
 
+AC_CONFIG_SRCDIR([configure.ac])
 AC_CONFIG_AUX_DIR([build-aux])
 AC_CONFIG_MACRO_DIR([m4])
-AM_INIT_AUTOMAKE([foreign -Wall -Werror])
+AM_INIT_AUTOMAKE([foreign -Wall -Werror], [0.1])
 
 ### Action Macros
 m4_ifdef([AM_PROG_AR], [AM_PROG_AR])
-AC_PROG_LIBTOOL
 AC_SUBST([LIB_CURRENT], [0])
-AC_SUBST([LIB_REVISION], [0])
+AC_SUBST([LIB_REVISION], [1])
 AC_SUBST([LIB_AGE], [0])
 
 
@@ -34,10 +34,14 @@ LX_FIND_MPI
 test "x$have_F_mpi" = xyes || AC_MSG_ERROR([Failed to find Fortran MPI Wrapper.])
 AC_LANG_POP()
 
+CC="$MPICC"
+CXX="$MPICXX"
+FC="$MPIFC"
 AC_CHECK_PROGS([MAKE], [make], [:])
 if test "$MAKE" = :; then
    AC_MSG_ERROR([This package needs make.])
 fi
+AC_PROG_LIBTOOL
 
 #### Checks for libraries.
 mpi_version3="yes"
