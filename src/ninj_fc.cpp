@@ -64,7 +64,8 @@
 
 #define NINJ_FC_THREAD_OVERHEAD_SEC (0.000030)
 
-#define NIN_SA (2.0)
+//#define NIN_SA (2.0)
+#define NIN_SA (1.2)
 
 #define NINJ_FC_MSG_ID(tag, comm_id) (size_t)(tag * 10000 + comm_id)
 
