@@ -1,9 +1,5 @@
 SUBDIRS = ../src
 
-CC=$(MPICC)
-CXX=$(MPICXX)
-FC=$(MPIFC)
-
 noinst_PROGRAMS = \
 	ninja_test_pingpong \
 	ninja_test_units \

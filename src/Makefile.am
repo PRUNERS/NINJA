@@ -6,9 +6,6 @@
 #  foo LDFLAGS:  Additional linker flags
 # The default value for foo_XXXFLAGS is $(AM_XXXFLAGS).
 
-CC=$(MPICC)
-CXX=$(MPICXX)
-FC=$(MPIFC)
 AM_CFLAGS = -fPIC -std=c++0x -pthread -g -lstdc++
 AM_CXXFLAGS = $(AM_CFLAGS)
 
