@@ -1,3 +1,5 @@
+<img src="files/NINJA_logo.png" height="60%" width="60%" alt="ReMPI logo" title="ReMPI" align="middle" />
+
 # Introduction
 
  * Ninja (Noise INJection Agent) is a tool for reproducing subtle and unintended mesage races
