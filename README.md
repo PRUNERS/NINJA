@@ -15,7 +15,7 @@
 
     $ LD_PRELOAD=<path to installation directory>/lib/libninja.so srun -n <# procs> ./a.out
 
-# Environmental valiables
+# Environment variables
 
  * `NIN_PATTERN`: 
      * `0`: Network noise free
