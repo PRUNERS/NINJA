@@ -36,7 +36,7 @@
     $ mkdir .ninja
     
 ### Run without NINJA
-This example code contains message races bug, but the bug may or may not manifest.
+This example code contains a message-race bug, but the bug may or may not manifest.
 
     $ mpirun -n 4 ./ninja_test_hypre_parasails 10
     NIN(test):  0: loop 0 (ninja_test_hypre_parasails.c:724)
@@ -54,12 +54,20 @@ This example code contains message races bug, but the bug may or may not manifes
 ### System-centric mode
 This system-centric mode will manifest the bug.
     
-    $ NIN_PATTERN=2 NIN_MODEL_MODE=0 NIN_DIR=./.ninja NIN_LOCAL_NOISE=0 LD_PRELOAD=<path to installation directory>/lib/libninja.so srun(or mpirun) -n 4 ./ninja_test_units matching
+    $ NIN_PATTERN=2 NIN_MODEL_MODE=0 NIN_DIR=./.ninja NIN_LOCAL_NOISE=0 LD_PRELOAD=<path to installation directory>/lib/libninja.so srun(or mpirun) -n 4 ./ninja_test_hypre_parasails 10
+    NIN(test):  0: loop 0 (ninja_test_hypre_parasails.c:724)
+    NIN(test):  0: loop 1 (ninja_test_hypre_parasails.c:724)
+    NIN(test):  0: loop 2 (ninja_test_hypre_parasails.c:724)
+    NIN(test):  0: loop 3 (ninja_test_hypre_parasails.c:724)
+    NIN(test):  0: loop 4 (ninja_test_hypre_parasails.c:724)
+    $ exited on signal 11 (Segmentation fault).
     
 ### Application-centric mode
-This application-cenric mode will more quickly and frequently manifest the bug.
+This application-cenric mode will manifest the bug more quickly and frequently.
 
-    $ NIN_PATTERN=2 NIN_MODEL_MODE=1 NIN_DIR=./.ninja NIN_LOCAL_NOISE=0 LD_PRELOAD=<path to installation directory>/lib/libninja.so srun(or mpirun) -n 4 ./ninja_test_units matching
+    $ NIN_PATTERN=2 NIN_MODEL_MODE=1 NIN_DIR=./.ninja NIN_LOCAL_NOISE=0 LD_PRELOAD=<path to installation directory>/lib/libninja.so srun(or mpirun) -n 4 ./ninja_test_hypre_parasails 10
+    $ NIN(test):  0: loop 0 (ninja_test_hypre_parasails.c:724)
+    $ exited on signal 11 (Segmentation fault).
 
 # Environment variables
 
