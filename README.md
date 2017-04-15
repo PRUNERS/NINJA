@@ -35,11 +35,29 @@
     $ cd test
     $ mkdir .ninja
     
+### Run without NINJA
+This example code contains message races bug, but the bug may or may not manifest.
+
+    $ mpirun -n 4 ./ninja_test_hypre_parasails 10
+    NIN(test):  0: loop 0 (ninja_test_hypre_parasails.c:724)
+    NIN(test):  0: loop 1 (ninja_test_hypre_parasails.c:724)
+    NIN(test):  0: loop 2 (ninja_test_hypre_parasails.c:724)
+    NIN(test):  0: loop 3 (ninja_test_hypre_parasails.c:724)
+    NIN(test):  0: loop 4 (ninja_test_hypre_parasails.c:724)
+    NIN(test):  0: loop 5 (ninja_test_hypre_parasails.c:724)
+    NIN(test):  0: loop 6 (ninja_test_hypre_parasails.c:724)
+    NIN(test):  0: loop 7 (ninja_test_hypre_parasails.c:724)
+    NIN(test):  0: loop 8 (ninja_test_hypre_parasails.c:724)
+    NIN(test):  0: loop 9 (ninja_test_hypre_parasails.c:724)
+    Time: 10.001586
+
 ### System-centric mode
+This system-centric mode will manifest the bug.
     
     $ NIN_PATTERN=2 NIN_MODEL_MODE=0 NIN_DIR=./.ninja NIN_LOCAL_NOISE=0 LD_PRELOAD=<path to installation directory>/lib/libninja.so srun(or mpirun) -n 4 ./ninja_test_units matching
     
 ### Application-centric mode
+This application-cenric mode will more quickly and frequently manifest the bug.
 
     $ NIN_PATTERN=2 NIN_MODEL_MODE=1 NIN_DIR=./.ninja NIN_LOCAL_NOISE=0 LD_PRELOAD=<path to installation directory>/lib/libninja.so srun(or mpirun) -n 4 ./ninja_test_units matching
 
