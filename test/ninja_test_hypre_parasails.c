@@ -86,7 +86,7 @@ double s, e;
 
 
 
-//#define ENABLE_HANG
+#define ENABLE_HANG
 
 #define ROW_REQP_TAG        221
 #ifdef ENABLE_HANG
