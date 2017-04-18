@@ -4,16 +4,70 @@
 
  * Ninja (Noise INJection Agent) is a tool for reproducing subtle and unintended mesage races
 
-# Quick Start
+# Quick start
 
-## Build Ninja
+## 1. Build NINJA 
 
-    $ autogen.py
+### From Spack (Spack also builds ReMPI)
+
+    $ git clone https://github.com/LLNL/spack
+    $ spack/bin/spack install rempi
+
+### From git repogitory
+
+    $ git clone git@github.com:PRUNERS/ReMPI.git
+    $ cd <rempi directory>
+    $ ./autogen.sh
     $ configure --prefix=<path to installation directory>
+    $ make
+    $ make install
 
-## Run examples
+### From tarball
 
-    $ LD_PRELOAD=<path to installation directory>/lib/libninja.so srun -n <# procs> ./a.out
+    $ tar zxvf ./rempi_xxxxx.tar.bz
+    $ cd <rempi directory>
+    $ configure --prefix=<path to installation directory>
+    $ make
+    $ make install
+    
+## 2. Run examples
+
+    $ cd test
+    $ mkdir .ninja
+    
+### Run without NINJA
+This example code contains a message-race bug, but the bug may or may not manifest.
+
+    $ mpirun -n 4 ./ninja_test_hypre_parasails 10
+    NIN(test):  0: loop 0 (ninja_test_hypre_parasails.c:724)
+    NIN(test):  0: loop 1 (ninja_test_hypre_parasails.c:724)
+    NIN(test):  0: loop 2 (ninja_test_hypre_parasails.c:724)
+    NIN(test):  0: loop 3 (ninja_test_hypre_parasails.c:724)
+    NIN(test):  0: loop 4 (ninja_test_hypre_parasails.c:724)
+    NIN(test):  0: loop 5 (ninja_test_hypre_parasails.c:724)
+    NIN(test):  0: loop 6 (ninja_test_hypre_parasails.c:724)
+    NIN(test):  0: loop 7 (ninja_test_hypre_parasails.c:724)
+    NIN(test):  0: loop 8 (ninja_test_hypre_parasails.c:724)
+    NIN(test):  0: loop 9 (ninja_test_hypre_parasails.c:724)
+    Time: 10.001586
+
+### System-centric mode
+This system-centric mode will manifest the bug.
+    
+    $ NIN_PATTERN=2 NIN_MODEL_MODE=0 NIN_DIR=./.ninja NIN_LOCAL_NOISE=0 LD_PRELOAD=<path to installation directory>/lib/libninja.so srun(or mpirun) -n 4 ./ninja_test_hypre_parasails 10
+    NIN(test):  0: loop 0 (ninja_test_hypre_parasails.c:724)
+    NIN(test):  0: loop 1 (ninja_test_hypre_parasails.c:724)
+    NIN(test):  0: loop 2 (ninja_test_hypre_parasails.c:724)
+    NIN(test):  0: loop 3 (ninja_test_hypre_parasails.c:724)
+    NIN(test):  0: loop 4 (ninja_test_hypre_parasails.c:724)
+    $ exited on signal 11 (Segmentation fault).
+    
+### Application-centric mode
+This application-cenric mode will manifest the bug more quickly and frequently.
+
+    $ NIN_PATTERN=2 NIN_MODEL_MODE=1 NIN_DIR=./.ninja NIN_LOCAL_NOISE=0 LD_PRELOAD=<path to installation directory>/lib/libninja.so srun(or mpirun) -n 4 ./ninja_test_hypre_parasails 10
+    $ NIN(test):  0: loop 0 (ninja_test_hypre_parasails.c:724)
+    $ exited on signal 11 (Segmentation fault).
 
 # Environment variables
 
@@ -24,8 +78,8 @@
        * `NIN_RAND_DELAY`: Selected messages are delayed by usleep(NIN_RAND_DELAY)
      * `2`: Smart network noise injection
        * `NIN_MODEL_MODE`
-       	 * `0`: Passive mode
-       	 * `1`: Active mode
+       	 * `0`: System-centric mode
+       	 * `1`: Application-centric mode
        * `NIN_DIR`: Directory for send pattern learning files
  * `NIN_LOCAL_NOISE`:
      * `0`: Local noise free
