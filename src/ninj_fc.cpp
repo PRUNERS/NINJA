@@ -285,8 +285,10 @@ static double ninj_fc_get_delay_model_mode(int message_id, double current_time, 
 
 
 #define ENABLE_ML_PRINT
+double bt = 0;
 static void ninj_fc_get_delay_model(int dest, int tag, int comm_id, int *delay_flag, double *send_time, double *base_time)
 {
+  if (bt == 0) bt = NIN_get_time();
   size_t message_id;
   int enqueued_packet_num;
   double current_time   = NIN_get_time();
@@ -296,16 +298,27 @@ static void ninj_fc_get_delay_model(int dest, int tag, int comm_id, int *delay_f
 
   message_id = NINJ_FC_MSG_ID(tag, comm_id);
   
-  if (message_id == 2220000) NIN_DBGI(32, "queue: %d > %d", enqueued_packet_num, ninj_fc_queue_length_threshold);
+  //if (message_id == 2220000) NIN_DBGI(32, "queue: %d > %d", enqueued_packet_num, ninj_fc_queue_length_threshold);
+
+  NIN_DBGI(0, "queue: %d > %d (dest: %d, tag: %d, comm_id: %d): %f", enqueued_packet_num, ninj_fc_queue_length_threshold,
+  	   dest, tag, comm_id, current_time - bt);
   if (enqueued_packet_num > ninj_fc_queue_length_threshold) {
     //    *send_time = ninj_fc_get_time_of_packet_transmit(enqueued_packet_num - ninj_fc_queue_length_threshold);
     *send_time = ninj_fc_get_delay_model_mode(message_id, current_time, enqueued_packet_num - ninj_fc_queue_length_threshold);
     *delay_flag = (*send_time == current_time)? 0:1;
-    if (message_id == 2220000) NIN_DBGI(32, "active delay(1): %f", *send_time - current_time);
+    //if (message_id == 2220000) NIN_DBGI(32, "active delay(1): %f", *send_time - current_time);
+    // NIN_DBGI(0,"active delay(1): %f (dest: %d, send_time: %f, current_time: %f)", 
+    // 			   *send_time - current_time, dest, *send_time, current_time);
+    // if (dest == 6) NIN_DBG("=== active delay(1): %f (dest: %d, send_time: %f, current_time: %f)", 
+    // 			   *send_time - current_time, dest, *send_time, current_time);
   } else {
     *delay_flag = 0;
     *send_time = current_time;
-    if(message_id == 2220000) NIN_DBGI(32, "active delay(0): %f", *send_time - current_time);
+    //if(message_id == 2220000) NIN_DBGI(32, "active delay(0): %f", *send_time - current_time);
+    // NIN_DBGI(0,"active delay(0): %f (dest: %d, send_time: %f, current_time: %f)", 
+    // 			   *send_time - current_time, dest, *send_time, current_time);
+    // if (dest == 6) NIN_DBG("=== active delay(0): %f (dest: %d, send_time: %f, current_time: %f)", 
+    // 			   *send_time - current_time, dest, *send_time, current_time);
   }
 
   //  NIN_DBGI(0, "cur: %f, send: %f", current_time, *send_time);
