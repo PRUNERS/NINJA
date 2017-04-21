@@ -38,7 +38,7 @@
 This example code (ninja_test_matching_race) is a synthetic benchmark embracing a message-race bug. 
 
     $ ./ninja_test_matching_race
-    $ Usage: ./matching_race <type: 0=SR, 1=SSR> <matching safe: 0=unsafe 1=safe> <# of loops> <# of patterns per loop> <interval(usec)>
+    Usage: ./matching_race <type: 0=SR, 1=SSR> <matching safe: 0=unsafe 1=safe> <# of loops> <# of patterns per loop> <interval(usec)>
     
 * `<type: 0=SR, 1=SSR>`: 
     * `0`: TEST CASE 0 (Same as CASE 1 in reference)
@@ -65,14 +65,14 @@ Manifestation of this bug is non-deterministic. Even if enable message races (i.
     NIN(test):  0: loop: 3 (ninja_test_matching_race.c:225)
      ...
     NIN(test):  0: loop: 1000 (ninja_test_matching_race.c:225)
-    NIN(test):  0: Time: 2.433113 (ninja_test_matching_race.c:314)
+    NIN(test):  0: Time: 0.054226 (ninja_test_matching_race.c:314)
  
 ### Run under System-centric mode
 If the bug does not manifest, NINJA's system-centric mode may be able to manifest the bug.
     
     $ LD_PRELOAD=<path to installation directory>/lib/libninja.so NIN_PATTERN=2 NIN_MODEL_MODE=0 srun -n (OR mpirun -np) 16 ./ninja_test_matching_race 1 0 1000 2 0 
     ===========================================
-    NIN_LOCAL_NOISE: 0
+     NIN_LOCAL_NOISE: 0
      NIN_PATTERN: 2
      NIN_MODEL_MODE: 0
      NIN_DIR: ./.ninja
