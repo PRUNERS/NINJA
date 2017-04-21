@@ -127,7 +127,8 @@ static char *ninj_fc_dir;
 static char ninj_fc_learning_file[256];
 
 static int ninj_fc_comm_size;
-static unordered_map<int, unordered_set<int>*> ninj_fc_victim_dest_umap;
+//static unordered_map<int, unordered_set<int>*> ninj_fc_victim_dest_umap;
+static unordered_set<int> ninj_fc_victim_dest_uset;
 static int ninj_fc_execution_id; /* Uniq number for this execution */
 
 static int ninj_fc_init_victim_dest()
@@ -136,34 +137,27 @@ static int ninj_fc_init_victim_dest()
     ninj_fc_execution_id = (int)NIN_get_time();
   }
   PMPI_Bcast(&ninj_fc_execution_id, 1, MPI_INT, 0, MPI_COMM_WORLD);
+  ninj_fc_victim_dest_uset.clear();
   return 1;
 }
 
 static int ninj_fc_is_victim_dest(int dest, int message_id)
 {
   int num_victim_rank;
-  unordered_set<int> *victim_rank_uset;
   int victim_rank;
   int is_victim;
 
 
-  if (ninj_fc_victim_dest_umap.find(message_id) == 
-      ninj_fc_victim_dest_umap.end()) {
-    victim_rank_uset = new unordered_set<int>;
+  if (ninj_fc_victim_dest_uset.size() == 0) {
     NIN_init_rand(ninj_fc_execution_id);
     num_victim_rank = (int)(ninj_fc_comm_size * 0.2);
     if (num_victim_rank == 0) num_victim_rank = 1;
     for (int i = 0; i < num_victim_rank; i++) {
       victim_rank = NIN_get_rand(ninj_fc_comm_size);
-      victim_rank_uset->insert(victim_rank);
+      ninj_fc_victim_dest_uset.insert(victim_rank);
     }
-    ninj_fc_victim_dest_umap[message_id] = victim_rank_uset;
-  } else {
-    victim_rank_uset = ninj_fc_victim_dest_umap.at(message_id);
   }
-
-  is_victim = (victim_rank_uset->find(dest) != victim_rank_uset->end())? 1:0; 
-  
+  is_victim = (ninj_fc_victim_dest_uset.find(dest) != ninj_fc_victim_dest_uset.end())? 1:0;   
   return is_victim;
 }
 
@@ -341,6 +335,7 @@ static void ninj_fc_get_delay_model(int dest, int tag, int comm_id, int *delay_f
   int is_adjusted;
   int is_victim_dest;
   int is_exceeded_threshold;
+  int victim_filter;
 
   ninj_fc_ring_buffer_head_progress();
   enqueued_packet_num = NINJ_FC_QUEUED_PACKET_NUM(ninj_fc_ring_buffer_head_index, ninj_fc_ring_buffer_tail_index);
@@ -358,22 +353,23 @@ static void ninj_fc_get_delay_model(int dest, int tag, int comm_id, int *delay_f
   // }
 
   is_exceeded_threshold = enqueued_packet_num > ninj_fc_queue_length_threshold;
-  if ((is_exceeded_threshold && ninj_fc_model_mode == 0) || 
-      (1 && ninj_fc_model_mode == 1 && is_victim_dest && (is_victim_dest != nin_my_rank))) {
+  victim_filter = is_victim_dest && (is_victim_dest != nin_my_rank);
+  if ((is_exceeded_threshold && ninj_fc_model_mode == 0 && 1) || 
+      (1                     && ninj_fc_model_mode == 1 && victim_filter)) {
     //    *send_time = ninj_fc_get_time_of_packet_transmit(enqueued_packet_num - ninj_fc_queue_length_threshold);
     *send_time = ninj_fc_get_delay_model_mode(message_id, current_time, enqueued_packet_num - ninj_fc_queue_length_threshold);
     *delay_flag = (*send_time == current_time)? 0:1;
     //if (message_id == 2220000) NIN_DBGI(32, "active delay(1): %f", *send_time - current_time);
-    // NIN_DBGI(0,"active delay(1): %f (dest: %d, send_time: %f, current_time: %f, flag: %d)", 
-    // 	     *send_time - current_time, dest, *send_time, current_time, flag);
+    // NIN_DBGI(0,"active delay(1): %f (dest: %d, send_time: %f, current_time: %f)", 
+    // 	     *send_time - current_time, dest, *send_time, current_time);
     // if (dest == 6) NIN_DBG("=== active delay(1): %f (dest: %d, send_time: %f, current_time: %f)", 
     // 			   *send_time - current_time, dest, *send_time, current_time);
   } else {
     *delay_flag = 0;
     *send_time = current_time;
+    // NIN_DBGI(0,"active delay(0): %f (dest: %d, send_time: %f, current_time: %f)", 
+    // 	     *send_time - current_time, dest, *send_time, current_time);
     //if(message_id == 2220000) NIN_DBGI(32, "active delay(0): %f", *send_time - current_time);
-    // NIN_DBGI(0,"active delay(0): %f (dest: %d, send_time: %f, current_time: %f, flag: %d)", 
-    // 	     *send_time - current_time, dest, *send_time, current_time, flag);
     // if (dest == 6) NIN_DBG("=== active delay(0): %f (dest: %d, send_time: %f, current_time: %f)", 
     // 			   *send_time - current_time, dest, *send_time, current_time);
   }
