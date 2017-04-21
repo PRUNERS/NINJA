@@ -675,6 +675,11 @@ int main(int argc, char* argv[])
   signal(SIGSEGV, SIG_DFL);
   hypre_MPI_Comm_rank(MPI_COMM_WORLD, &my_rank);
   hypre_MPI_Comm_size(MPI_COMM_WORLD, &comm_size);
+  
+  if (comm_size != 64) {
+    if (my_rank == 0) mst_test_dbg_print("Please run this test with 64 processes");
+    exit(0);
+  }
 
   if (argc == 2) {
     num_loop = atoi(argv[1]);

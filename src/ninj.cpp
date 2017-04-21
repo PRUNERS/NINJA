@@ -139,14 +139,17 @@ static void ninj_init_variables()
 {
   char *env;
   if (NULL == (env = getenv(NIN_CONF_LOCAL_NOISE))) {
-    NIN_DBGI(0, "getenv failed: Please specify %s (%s:%s:%d)", NIN_CONF_LOCAL_NOISE, __FILE__, __func__, __LINE__);
-    exit(1);
+    //NIN_DBGI(0, "getenv failed: Please specify %s (%s:%s:%d)", NIN_CONF_LOCAL_NOISE, __FILE__, __func__, __LINE__);
+    //    exit(1);
+    ninj_conf_local_noise = 0;
+  } else {
+    ninj_conf_local_noise = atoi(env);
   }
-  ninj_conf_local_noise = atoi(env);
-  NIN_DBGI(0, " %s: %d", NIN_CONF_LOCAL_NOISE, ninj_conf_local_noise);
+  if (nin_my_rank == 0) fprintf(stderr, " %s: %d\n", NIN_CONF_LOCAL_NOISE, ninj_conf_local_noise);
+
   if (ninj_conf_local_noise) {
     if (NULL == (env = getenv(NIN_CONF_LOCAL_NOISE_AMOUNT))) {
-      NIN_DBGI(0, "getenv failed: Please specify %s (%s:%s:%d)", NIN_CONF_LOCAL_NOISE_AMOUNT, __FILE__, __func__, __LINE__);
+      NIN_DBGI(0, "Please specify %s (%s:%s:%d)", NIN_CONF_LOCAL_NOISE_AMOUNT, __FILE__, __func__, __LINE__);
       exit(0);
     }
     ninj_conf_local_noise_amount_usec = atoi(env);
@@ -164,10 +167,10 @@ static void nin_init(int *argc, char ***argv)
   NIN_Init();
   ret = pthread_create(&nin_nosie_thread, NULL, run_delayed_send, NULL);
   NIN_init_ndrand();
-  NIN_DBGI(0, "===========================================");
+  if (nin_my_rank == 0) fprintf(stderr, "===========================================\n");
   ninj_init_variables();
   ninj_fc_init(*argc, *argv);
-  NIN_DBGI(0, "===========================================");
+  if (nin_my_rank == 0) fprintf(stderr, "===========================================\n");
   
 
 
