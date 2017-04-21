@@ -33,7 +33,6 @@
 ## 2. Run examples
 
     $ cd test
-    $ mkdir .ninja
     
 ### Run without NINJA
 This example code (ninja_test_matching_race) is a synthetic benchmark embracing a message-race bug. 
@@ -68,7 +67,7 @@ Manifestation of this bug is non-deterministic. Even if enable message races (i.
     NIN(test):  0: loop: 1000 (ninja_test_matching_race.c:225)
     NIN(test):  0: Time: 2.433113 (ninja_test_matching_race.c:314)
  
-### System-centric mode
+### Run under System-centric mode
 If the bug does not manifest, NINJA's system-centric mode may be able to manifest the bug.
     
     $ LD_PRELOAD=<path to installation directory>/lib/libninja.so NIN_PATTERN=2 NIN_MODEL_MODE=0 srun -n (OR mpirun -np) 16 ./ninja_test_matching_race 1 0 1000 2 0 
@@ -121,7 +120,7 @@ Let's increate interval time between unsafe communication routines from 0 to 100
 
 During NINJA's system-centric mode, NINJA profiles intervals of each unsafe communication routine. At the end of the execution (on MPI_Finalize()), NINJA outputs the profile for NINJA's application-centric mode.
 
-### Application-centric mode
+### Run under Application-centric mode
 NINJA's application-cenric mode read this profile, then inject adequate amount noise to manifest message-race bugs.
 
     $ LD_PRELOAD=<path to installation directory>/lib/libninja.so NIN_PATTERN=2 NIN_MODEL_MODE=1 srun -n (OR mpirun -np) 16 ./ninja_test_matching_race 1 0 1000 2 1000
