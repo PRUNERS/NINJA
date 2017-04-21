@@ -36,38 +36,112 @@
     $ mkdir .ninja
     
 ### Run without NINJA
-This example code contains a message-race bug, but the bug may or may not manifest.
+This example code (ninja_test_matching_race) is a synthetic benchmark embracing a message-race bug. 
 
-    $ mpirun -n 4 ./ninja_test_hypre_parasails 10
-    NIN(test):  0: loop 0 (ninja_test_hypre_parasails.c:724)
-    NIN(test):  0: loop 1 (ninja_test_hypre_parasails.c:724)
-    NIN(test):  0: loop 2 (ninja_test_hypre_parasails.c:724)
-    NIN(test):  0: loop 3 (ninja_test_hypre_parasails.c:724)
-    NIN(test):  0: loop 4 (ninja_test_hypre_parasails.c:724)
-    NIN(test):  0: loop 5 (ninja_test_hypre_parasails.c:724)
-    NIN(test):  0: loop 6 (ninja_test_hypre_parasails.c:724)
-    NIN(test):  0: loop 7 (ninja_test_hypre_parasails.c:724)
-    NIN(test):  0: loop 8 (ninja_test_hypre_parasails.c:724)
-    NIN(test):  0: loop 9 (ninja_test_hypre_parasails.c:724)
-    Time: 10.001586
+    $ ./ninja_test_matching_race
+    $ Usage: ./matching_race <type: 0=SR, 1=SSR> <matching safe: 0=unsafe 1=safe> <# of loops> <# of patterns per loop> <interval(usec)>
+    
+* `<type: 0=SR, 1=SSR>`: 
+    * `0`: TEST CASE 0 (Same as CASE 1 in reference)
+    * `1`: TEST CASE 1 (Same as CASE 2 in reference)
+* `<matching safe: 0=unsafe 1=safe>`
+    * `0`: Run under tag-unsafe-tag condition (i.e., enable message races)
+    * `1`: Run under tag-safe condition (i.e., disable message races)
+* `<# of loops>`: the number of iterations
+* `<# of patterns per loop>`: the number of communication routines per iteration
+* `<interval(usec)>`: interval time (usec) between communication routines
+    
+Manifestation of this bug is non-deterministic. Even if enable message races (i.e. <matching safe>=0), this message-race bug may not manifest.
 
+    $ srun -n (OR mpirun -np) 16 ./ninja_test_matching_race 1 0 1000 2 0
+    ***************************
+    Matching Type     : 1
+    Is Matching safe ?: 0
+    # of Loops        : 1000
+    # of Patterns     : 2
+    Interval(usec)    : 0
+    ***************************
+    NIN(test):  0: loop: 1 (ninja_test_matching_race.c:225)
+    NIN(test):  0: loop: 2 (ninja_test_matching_race.c:225)
+    NIN(test):  0: loop: 3 (ninja_test_matching_race.c:225)
+     ...
+    NIN(test):  0: loop: 1000 (ninja_test_matching_race.c:225)
+    NIN(test):  0: Time: 2.433113 (ninja_test_matching_race.c:314)
+ 
 ### System-centric mode
-This system-centric mode will manifest the bug.
+If the bug does not manifest, NINJA's system-centric mode may be able to manifest the bug.
     
-    $ NIN_PATTERN=2 NIN_MODEL_MODE=0 NIN_DIR=./.ninja NIN_LOCAL_NOISE=0 LD_PRELOAD=<path to installation directory>/lib/libninja.so srun(or mpirun) -n 4 ./ninja_test_hypre_parasails 10
-    NIN(test):  0: loop 0 (ninja_test_hypre_parasails.c:724)
-    NIN(test):  0: loop 1 (ninja_test_hypre_parasails.c:724)
-    NIN(test):  0: loop 2 (ninja_test_hypre_parasails.c:724)
-    NIN(test):  0: loop 3 (ninja_test_hypre_parasails.c:724)
-    NIN(test):  0: loop 4 (ninja_test_hypre_parasails.c:724)
-    $ exited on signal 11 (Segmentation fault).
+    $ LD_PRELOAD=<path to installation directory>/lib/libninja.so NIN_PATTERN=2 NIN_MODEL_MODE=0 srun -n (OR mpirun -np) 16 ./ninja_test_matching_race 1 0 1000 2 0 
+    ===========================================
+    NIN_LOCAL_NOISE: 0
+     NIN_PATTERN: 2
+     NIN_MODEL_MODE: 0
+     NIN_DIR: ./.ninja
+    ===========================================
+    ***************************
+    Matching Type     : 1
+    Is Matching safe ?: 0
+    # of Loops        : 1000
+    # of Patterns     : 2
+    Interval(usec)    : 0
+    ***************************
+    NIN(test):  0: loop: 1 (ninja_test_matching_race.c:225)
+    NIN(test):  0: loop: 2 (ninja_test_matching_race.c:225)
+    NIN(test):  0: loop: 3 (ninja_test_matching_race.c:225)
+    NIN(test):  0: loop: 4 (ninja_test_matching_race.c:225)
+    NIN(test):  0: loop: 5 (ninja_test_matching_race.c:225)
+    NIN(test):  0: loop: 6 (ninja_test_matching_race.c:225)
+    NIN(test):  0: loop: 7 (ninja_test_matching_race.c:225)
+    NIN(test):  0: loop: 8 (ninja_test_matching_race.c:225)
+    NIN(test):  0: loop: 9 (ninja_test_matching_race.c:225)
+    NIN(test):  0: loop: 10 (ninja_test_matching_race.c:225)
+    NIN(test):  0: loop: 11 (ninja_test_matching_race.c:225)
+    NIN(test):  0: loop: 12 (ninja_test_matching_race.c:225)
+    NIN(test): 10: Wrong matching detected: recv_val: 23, send_val: 22 at loop 11 (ninja_test_matching_race.c:247)
+    application called MPI_Abort(, 0) - process 10
     
-### Application-centric mode
-This application-cenric mode will manifest the bug more quickly and frequently.
+NINJA's system-centric mode simply emulates noisy enviroments to induce message races. Therefore, if two unsafe communication routines are significantly separated. NINJA's system-centric mode may not be able to manifest message-race bugs.
+Let's increate interval time between unsafe communication routines from 0 to 1000 usec.
 
-    $ NIN_PATTERN=2 NIN_MODEL_MODE=1 NIN_DIR=./.ninja NIN_LOCAL_NOISE=0 LD_PRELOAD=<path to installation directory>/lib/libninja.so srun(or mpirun) -n 4 ./ninja_test_hypre_parasails 10
-    $ NIN(test):  0: loop 0 (ninja_test_hypre_parasails.c:724)
-    $ exited on signal 11 (Segmentation fault).
+    $ LD_PRELOAD=<path to installation directory>/lib/libninja.so NIN_PATTERN=2 NIN_MODEL_MODE=0 srun -n (OR mpirun -np) 16 ./ninja_test_matching_race 1 0 1000 2 1000
+    ***************************
+    Matching Type     : 1
+    Is Matching safe ?: 0
+    # of Loops        : 1000
+    # of Patterns     : 2
+    Interval(usec)    : 0
+    ***************************
+    NIN(test):  0: loop: 1 (ninja_test_matching_race.c:225)
+    NIN(test):  0: loop: 2 (ninja_test_matching_race.c:225)
+    NIN(test):  0: loop: 3 (ninja_test_matching_race.c:225)
+     ...
+    NIN(test):  0: loop: 1000 (ninja_test_matching_race.c:225)
+    NIN(test):  0: Time: 2.433113 (ninja_test_matching_race.c:314)
+    NIN:0: Learning file written to ./.ninja directory (ninj_fc.cpp:566)
+
+During NINJA's system-centric mode, NINJA profiles intervals of each unsafe communication routine. At the end of the execution (on MPI_Finalize()), NINJA outputs the profile for NINJA's application-centric mode.
+
+### Application-centric mode
+NINJA's application-cenric mode read this profile, then inject adequate amount noise to manifest message-race bugs.
+
+    $ LD_PRELOAD=<path to installation directory>/lib/libninja.so NIN_PATTERN=2 NIN_MODEL_MODE=1 srun -n (OR mpirun -np) 16 ./ninja_test_matching_race 1 0 1000 2 1000
+    ===========================================
+     NIN_LOCAL_NOISE: 0
+     NIN_PATTERN: 2
+     NIN_MODEL_MODE: 1
+     NIN_DIR: ./.ninja
+    ===========================================
+    ***************************
+    Matching Type     : 1
+    Is Matching safe ?: 0
+    # of Loops        : 1000
+    # of Patterns     : 2
+    Interval(usec)    : 1000
+    ***************************
+    NIN(test):  0: loop: 1 (ninja_test_matching_race.c:225)
+    NIN(test): 13: Wrong matching detected: recv_val: 1, send_val: 0 at loop 0 (ninja_test_matching_race.c:247)
+    application called MPI_Abort(, 0) - process 13
+
 
 # Environment variables
 
