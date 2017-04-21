@@ -42,7 +42,7 @@ This example code (ninja_test_matching_race) is a synthetic benchmark embracing 
     
 * `<type: 0=SR, 1=SSR>`: 
     * `0`: TEST CASE 0 (Same as Case 1 in [Reference](./README.md#reference))
-    * `1`: TEST CASE 1 (Same as Case 2 in reference)
+    * `1`: TEST CASE 1 (Same as Case 2 in [Reference](./README.md#reference))
 * `<matching safe: 0=unsafe 1=safe>`
     * `0`: Run under tag-unsafe condition (i.e., enable message races)
     * `1`: Run under tag-safe condition (i.e., disable message races)
