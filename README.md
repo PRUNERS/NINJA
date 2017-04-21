@@ -41,10 +41,10 @@ This example code (ninja_test_matching_race) is a synthetic benchmark embracing 
     Usage: ./matching_race <type: 0=SR, 1=SSR> <matching safe: 0=unsafe 1=safe> <# of loops> <# of patterns per loop> <interval(usec)>
     
 * `<type: 0=SR, 1=SSR>`: 
-    * `0`: TEST CASE 0 (Same as CASE 1 in reference)
-    * `1`: TEST CASE 1 (Same as CASE 2 in reference)
+    * `0`: TEST CASE 0 (Same as Case 1 in reference)
+    * `1`: TEST CASE 1 (Same as Case 2 in reference)
 * `<matching safe: 0=unsafe 1=safe>`
-    * `0`: Run under tag-unsafe-tag condition (i.e., enable message races)
+    * `0`: Run under tag-unsafe condition (i.e., enable message races)
     * `1`: Run under tag-safe condition (i.e., disable message races)
 * `<# of loops>`: the number of iterations
 * `<# of patterns per loop>`: the number of communication routines per iteration
