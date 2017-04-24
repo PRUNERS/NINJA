@@ -6,14 +6,14 @@
 
 # Quick start
 
-## 1. Build NINJA 
+## 1. Building NINJA 
 
 ### From Spack (Spack also builds ReMPI)
 
     $ git clone https://github.com/LLNL/spack
-    $ spack/bin/spack install rempi
+    $ ./spack/bin/spack install rempi
 
-### From git repogitory
+### From git repository
 
     $ git clone git@github.com:PRUNERS/ReMPI.git
     $ cd <rempi directory>
@@ -34,7 +34,7 @@
 
     $ cd test
     
-### Run without NINJA
+### Running without NINJA
 This example code (ninja_test_matching_race) is a synthetic benchmark embracing a message-race bug. 
 
     $ ./ninja_test_matching_race
@@ -50,7 +50,7 @@ This example code (ninja_test_matching_race) is a synthetic benchmark embracing 
 * `<# of patterns per loop>`: the number of communication routines per iteration
 * `<interval(usec)>`: interval time (usec) between communication routines
     
-Manifestation of this bug is non-deterministic. Even if enabling message races (i.e. `<matching safe>=0`), this message-race bug may not manifest and run all the way to loop 1000. (NOTE: this bug is non-deterministic. Therefore, you will not see the same manifestations as well as outputs)
+The manifestation of this bug is non-deterministic. Even when enabling message races (i.e. `<matching safe>=0`), this message-race bug may not manifest and run all the way to loop 1000. (NOTE: this bug is non-deterministic. Therefore, you will not see the same manifestations as well as outputs)
 
     $ srun -n (OR mpirun -np) 16 ./ninja_test_matching_race 1 0 1000 2 0
     ***************************
@@ -67,7 +67,7 @@ Manifestation of this bug is non-deterministic. Even if enabling message races (
     NIN(test):  0: loop: 1000 (ninja_test_matching_race.c:225)
     NIN(test):  0: Time: 0.054226 (ninja_test_matching_race.c:314)
  
-### Run under System-centric mode
+### Running under System-centric mode
 If the bug does not manifest, NINJA's system-centric mode may be able to manifest the bug.
     
     $ LD_PRELOAD=<path to installation directory>/lib/libninja.so NIN_PATTERN=2 NIN_MODEL_MODE=0 srun -n (OR mpirun -np) 16 ./ninja_test_matching_race 1 0 1000 2 0 
@@ -100,7 +100,7 @@ If the bug does not manifest, NINJA's system-centric mode may be able to manifes
     application called MPI_Abort(, 0) - process 10
     
 NINJA's system-centric mode simply emulates noisy enviroments to induce message races. Therefore, if two unsafe communication routines are significantly separated. NINJA's system-centric mode may not be able to manifest message-race bugs.
-Let's increate interval time between unsafe communication routines from 0 to 1000 usec.
+Let's increase the interval time between unsafe communication routines from 0 to 1000 usec.
 
     $ LD_PRELOAD=<path to installation directory>/lib/libninja.so NIN_PATTERN=2 NIN_MODEL_MODE=0 srun -n (OR mpirun -np) 16 ./ninja_test_matching_race 1 0 1000 2 1000
     ***************************
@@ -120,8 +120,8 @@ Let's increate interval time between unsafe communication routines from 0 to 100
 
 During NINJA's system-centric mode, NINJA profiles intervals of each unsafe communication routine. At the end of the execution (on MPI_Finalize()) under NINJA's system-centric mode, NINJA outputs the profile for NINJA's application-centric mode.
 
-### Run under Application-centric mode
-NINJA's application-cenric mode reads this profile, then injects adequate amounts of noise in order to manifest message-race bugs.
+### Runnig under Application-centric mode
+NINJA's application-cenric mode reads this profile and then injects an adequate amount of noise in order to manifest message-race bugs.
 
     $ LD_PRELOAD=<path to installation directory>/lib/libninja.so NIN_PATTERN=2 NIN_MODEL_MODE=1 srun -n (OR mpirun -np) 16 ./ninja_test_matching_race 1 0 1000 2 1000
     ===========================================
