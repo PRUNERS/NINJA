@@ -68,9 +68,9 @@ The manifestation of this bug is non-deterministic. Even when enabling message r
     NIN(test):  0: Time: 0.054226 (ninja_test_matching_race.c:314)
  
 ### Running under System-centric mode
-If the bug does not manifest, NINJA's system-centric mode may be able to manifest the bug.
+If the bug does not manifest, NINJA's system-centric mode `NIN_MODE=1` may be able to manifest the bug.
     
-    $ LD_PRELOAD=<path to installation directory>/lib/libninja.so NIN_PATTERN=2 NIN_MODE=0 srun -n (OR mpirun -np) 16 ./ninja_test_matching_race 1 0 1000 2 0 
+    $ LD_PRELOAD=<path to installation directory>/lib/libninja.so NIN_MODE=0 srun -n (OR mpirun -np) 16 ./ninja_test_matching_race 1 0 1000 2 0 
     ===========================================
      NIN_LOCAL_NOISE: 0
      NIN_PATTERN: 2
@@ -102,7 +102,7 @@ If the bug does not manifest, NINJA's system-centric mode may be able to manifes
 NINJA's system-centric mode simply emulates noisy enviroments to induce message races. Therefore, if two unsafe communication routines are significantly separated. NINJA's system-centric mode may not be able to manifest message-race bugs.
 Let's increase the interval time between unsafe communication routines from 0 to 1000 usec.
 
-    $ LD_PRELOAD=<path to installation directory>/lib/libninja.so NIN_PATTERN=2 NIN_MODE=0 srun -n (OR mpirun -np) 16 ./ninja_test_matching_race 1 0 1000 2 1000
+    $ LD_PRELOAD=<path to installation directory>/lib/libninja.so NIN_MODE=0 srun -n (OR mpirun -np) 16 ./ninja_test_matching_race 1 0 1000 2 1000
     ***************************
     Matching Type     : 1
     Is Matching safe ?: 0
@@ -121,9 +121,9 @@ Let's increase the interval time between unsafe communication routines from 0 to
 During NINJA's system-centric mode, NINJA profiles intervals of each unsafe communication routine. At the end of the execution (on MPI_Finalize()) under NINJA's system-centric mode, NINJA outputs the profile for NINJA's application-centric mode.
 
 ### Runnig under Application-centric mode
-NINJA's application-cenric mode reads this profile and then injects an adequate amount of noise in order to manifest message-race bugs.
+NINJA's application-cenric mode (`NIN_MODE=1`) reads this profile and then injects an adequate amount of noise in order to manifest message-race bugs.
 
-    $ LD_PRELOAD=<path to installation directory>/lib/libninja.so NIN_PATTERN=2 NIN_MODE=1 srun -n (OR mpirun -np) 16 ./ninja_test_matching_race 1 0 1000 2 1000
+    $ LD_PRELOAD=<path to installation directory>/lib/libninja.so NIN_MODE=1 srun -n (OR mpirun -np) 16 ./ninja_test_matching_race 1 0 1000 2 1000
     ===========================================
      NIN_LOCAL_NOISE: 0
      NIN_PATTERN: 2
@@ -149,13 +149,14 @@ NINJA's application-cenric mode reads this profile and then injects an adequate 
      * `1`: Random network noise
        * `NIN_RAND_RATIO`: NIN_RAND_RATIO % of MPI sends are delayed
        * `NIN_RAND_DELAY`: Selected messages are delayed by usleep(NIN_RAND_DELAY)
-     * `2`: Smart network noise injection
+     * `2 (default)`: Smart network noise injection
        * `NIN_MODE`
-       	 * `0`: System-centric mode
+       	 * `0 (default)`: System-centric mode
        	 * `1`: Application-centric mode
        * `NIN_DIR`: Directory for send pattern learning files
+         * Default is NIN_DIR=./.ninja
  * `NIN_LOCAL_NOISE`:
-     * `0`: Local noise free
+     * `0 (default)`: Local noise free
      * `1`: Constant local noise
        * `NIN_LOCAL_NOISE_AMOUNT`: Run CPU intensive work for <NIN_LOCAL_NOISE_AMOUN> usec after send/recv/matching function
 
