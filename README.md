@@ -1,4 +1,4 @@
-<img src="files/NINJA_logo.png" height="60%" width="60%" alt="ReMPI logo" title="ReMPI" align="middle" />
+<img src="files/NINJA_logo.png" height="60%" width="60%" alt="NINJA logo" title="NINJA" align="middle" />
 
 # Introduction
 
@@ -11,12 +11,12 @@
 ### From Spack
 
     $ git clone https://github.com/LLNL/spack
-    $ ./spack/bin/spack install rempi
+    $ ./spack/bin/spack install pruners-ninja
 
 ### From git repository
 
-    $ git clone git@github.com:PRUNERS/ReMPI.git
-    $ cd <rempi directory>
+    $ git clone git@github.com:PRUNERS/NINJA.git
+    $ cd NINJA
     $ ./autogen.sh
     $ configure --prefix=<path to installation directory>
     $ make
@@ -24,8 +24,8 @@
 
 ### From tarball
 
-    $ tar zxvf ./rempi_xxxxx.tar.bz
-    $ cd <rempi directory>
+    $ tar zxvf ./ninja_xxxxx.tar.bz
+    $ cd <NINJA directory>
     $ configure --prefix=<path to installation directory>
     $ make
     $ make install
