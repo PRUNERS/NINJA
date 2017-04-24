@@ -8,7 +8,7 @@
 
 ## 1. Building NINJA 
 
-### From Spack (Spack also builds ReMPI)
+### From Spack
 
     $ git clone https://github.com/LLNL/spack
     $ ./spack/bin/spack install rempi
