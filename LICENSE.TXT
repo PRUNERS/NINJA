@@ -1,4 +1,6 @@
-
+                  GNU LESSER GENERAL PUBLIC LICENSE
+                       Version 2.1, February 1999
+                       
 ########################################################################
 GNU LESSER GENERAL PUBLIC LICENSE (Lesser GPL)
 Version 2.1, February 1999
