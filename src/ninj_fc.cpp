@@ -50,7 +50,7 @@
 #define NIN_CONF_PATTERN_MODEL (2)  /* Ninja noise (require NIN_CONF_MODEL_MODE) */
 #define NIN_CONF_RAND_RATIO    "NIN_RAND_RATIO"
 #define NIN_CONF_RAND_DELAY    "NIN_RAND_DELAY"
-#define NIN_CONF_MODEL_MODE    "NIN_MODEL_MODE"
+#define NIN_CONF_MODEL_MODE    "NIN_MODE"
 #define NIN_CONF_MODEL_PASSIVE (0)  /* Systen-centric noise */
 #define NIN_CONF_MODEL_ACTIVE  (1)  /* Application-centric noise */
 
@@ -596,17 +596,17 @@ void ninj_fc_init(int argc, char **argv)
 
   if (ninj_fc_pattern == NIN_CONF_PATTERN_RAND) {
     if (NULL == (env = getenv(NIN_CONF_RAND_RATIO))) {
-      NIN_DBGI(0, "getenv failed: Please specify %s (%s:%s:%d)", NIN_CONF_RAND_RATIO, __FILE__, __func__, __LINE__);
+      NIN_DBGI(0, "Please specify %s (%s:%s:%d)", NIN_CONF_RAND_RATIO, __FILE__, __func__, __LINE__);
       exit(0);
     }
     ninj_fc_rand_ratio = atof(env);
     if (ninj_fc_rand_ratio <= 0 || 100 < ninj_fc_rand_ratio) {
-      NIN_DBGI(0, "getenv failed: Please specify (0 >) %s (<= 100) (%s:%s:%d)", NIN_CONF_RAND_DELAY, __FILE__, __func__, __LINE__);
+      NIN_DBGI(0, "Please specify (0 >) %s (<= 100) (%s:%s:%d)", NIN_CONF_RAND_DELAY, __FILE__, __func__, __LINE__);
       exit(0);
     }
     NIN_DBGI(0, " NIN_RAND_RATIO: %f %% of Send will be delayed", ninj_fc_rand_ratio);
     if (NULL == (env = getenv(NIN_CONF_RAND_DELAY))) {
-      NIN_DBGI(0, "getenv failed: Please specify %s (%s:%s:%d)", NIN_CONF_RAND_DELAY, __FILE__, __func__, __LINE__);
+      NIN_DBGI(0, "Please specify %s (%s:%s:%d)", NIN_CONF_RAND_DELAY, __FILE__, __func__, __LINE__);
       exit(0);
     }
     ninj_fc_rand_delay_usec = atof(env);
