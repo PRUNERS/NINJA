@@ -44,8 +44,9 @@ fi
 AC_PROG_LIBTOOL
 
 #### Checks for libraries.
-mpi_version3="yes"
-AC_CHECK_LIB([mpi], [PMPI_Ibarrier], [], [mpi_version3="no"], ["$MPI_CLDFLAGS"])
+mpi_version3="no"
+AC_CHECK_LIB([mpi], [PMPI_Ibarrier], [mpi_version3="yes"], [], ["$MPI_CLDFLAGS"])
+AC_CHECK_LIB([mpi_ibm], [PMPI_Ibarrier], [mpi_version3="yes"], [], ["$MPI_CLDFLAGS"])
 if test "$mpi_version3" = "no"; then
    AC_MSG_ERROR([This package needs MPI-3.])
 fi
