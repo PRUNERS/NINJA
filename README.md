@@ -2,7 +2,7 @@
 
 # Introduction
 
- * Ninja (Noise INJection Agent) is a tool for reproducing subtle and unintended mesage races
+ * Ninja (Noise INJection Agent) is a tool for reproducing subtle and unintended message races
 
 # Quick start
 
@@ -67,7 +67,7 @@ The manifestation of this bug is non-deterministic. Even when enabling message r
     NIN(test):  0: loop: 1000 (ninja_test_matching_race.c:225)
     NIN(test):  0: Time: 0.054226 (ninja_test_matching_race.c:314)
  
-### Running under System-centric mode
+### Running with NINJA (System-centric mode)
 If the bug does not manifest, NINJA's system-centric mode `NIN_MODE=0` may be able to manifest the bug.
     
     $ LD_PRELOAD=<path to installation directory>/lib/libninja.so NIN_MODE=0 srun -n (OR mpirun -np) 16 ./ninja_test_matching_race 1 0 1000 2 0 
@@ -120,8 +120,8 @@ Let's increase the interval time between unsafe communication routines from 0 to
 
 During NINJA's system-centric mode, NINJA profiles intervals of each unsafe communication routine. At the end of the execution (on MPI_Finalize()) under NINJA's system-centric mode, NINJA outputs the profile for NINJA's application-centric mode.
 
-### Runnig under Application-centric mode
-NINJA's application-cenric mode (`NIN_MODE=1`) reads this profile and then injects an adequate amount of noise in order to manifest message-race bugs.
+### Running with NINJA (Application-centric mode)
+NINJA's application-centric mode (`NIN_MODE=1`) reads this profile and then injects an adequate amount of noise in order to manifest message-race bugs.
 
     $ LD_PRELOAD=<path to installation directory>/lib/libninja.so NIN_MODE=1 srun -n (OR mpirun -np) 16 ./ninja_test_matching_race 1 0 1000 2 1000
     ===========================================
