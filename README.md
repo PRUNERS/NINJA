@@ -68,7 +68,7 @@ The manifestation of this bug is non-deterministic. Even when enabling message r
     NIN(test):  0: Time: 0.054226 (ninja_test_matching_race.c:314)
  
 ### Running under System-centric mode
-If the bug does not manifest, NINJA's system-centric mode `NIN_MODE=1` may be able to manifest the bug.
+If the bug does not manifest, NINJA's system-centric mode `NIN_MODE=0` may be able to manifest the bug.
     
     $ LD_PRELOAD=<path to installation directory>/lib/libninja.so NIN_MODE=0 srun -n (OR mpirun -np) 16 ./ninja_test_matching_race 1 0 1000 2 0 
     ===========================================
