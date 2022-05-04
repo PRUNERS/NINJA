@@ -306,7 +306,7 @@ int comm_size;
 
 #define LEN (64)
 float calibration = 1;
-int a[LEN];
+static int a[LEN];
 static void do_noise_work(float msec, int bool)
 {
 #ifdef ENABLE_NOISE
