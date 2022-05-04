@@ -31,7 +31,7 @@
 
 #define LEN (2)
 int lpusec;
-int a[LEN];
+static int a[LEN];
 static void do_noise_work(int loops)
 { 
   int i;
