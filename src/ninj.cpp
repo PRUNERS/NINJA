@@ -1299,48 +1299,48 @@ _EXTERN_C_ int MPI_File_get_view(MPI_File arg_0, MPI_Offset *arg_1, MPI_Datatype
 }
 
 /* ================== C Wrappers for MPI_File_iread ================== */
-_EXTERN_C_ int PMPI_File_iread(MPI_File arg_0, void *arg_1, int arg_2, MPI_Datatype arg_3, MPIO_Request *arg_4);
-_EXTERN_C_ int MPI_File_iread(MPI_File arg_0, void *arg_1, int arg_2, MPI_Datatype arg_3, MPIO_Request *arg_4) { 
+_EXTERN_C_ int PMPI_File_iread(MPI_File arg_0, void *arg_1, int arg_2, MPI_Datatype arg_3, MPI_Request *arg_4);
+_EXTERN_C_ int MPI_File_iread(MPI_File arg_0, void *arg_1, int arg_2, MPI_Datatype arg_3, MPI_Request *arg_4) { 
     int _wrap_py_return_val = 0;
     PMPI_WRAP(_wrap_py_return_val = PMPI_File_iread(arg_0, arg_1, arg_2, arg_3, arg_4), __func__);
     return _wrap_py_return_val;
 }
 
 /* ================== C Wrappers for MPI_File_iread_at ================== */
-_EXTERN_C_ int PMPI_File_iread_at(MPI_File arg_0, MPI_Offset arg_1, void *arg_2, int arg_3, MPI_Datatype arg_4, MPIO_Request *arg_5);
-_EXTERN_C_ int MPI_File_iread_at(MPI_File arg_0, MPI_Offset arg_1, void *arg_2, int arg_3, MPI_Datatype arg_4, MPIO_Request *arg_5) { 
+_EXTERN_C_ int PMPI_File_iread_at(MPI_File arg_0, MPI_Offset arg_1, void *arg_2, int arg_3, MPI_Datatype arg_4, MPI_Request *arg_5);
+_EXTERN_C_ int MPI_File_iread_at(MPI_File arg_0, MPI_Offset arg_1, void *arg_2, int arg_3, MPI_Datatype arg_4, MPI_Request *arg_5) { 
     int _wrap_py_return_val = 0;
     PMPI_WRAP(_wrap_py_return_val = PMPI_File_iread_at(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5), __func__);
     return _wrap_py_return_val;
 }
 
 /* ================== C Wrappers for MPI_File_iread_shared ================== */
-_EXTERN_C_ int PMPI_File_iread_shared(MPI_File arg_0, void *arg_1, int arg_2, MPI_Datatype arg_3, MPIO_Request *arg_4);
-_EXTERN_C_ int MPI_File_iread_shared(MPI_File arg_0, void *arg_1, int arg_2, MPI_Datatype arg_3, MPIO_Request *arg_4) { 
+_EXTERN_C_ int PMPI_File_iread_shared(MPI_File arg_0, void *arg_1, int arg_2, MPI_Datatype arg_3, MPI_Request *arg_4);
+_EXTERN_C_ int MPI_File_iread_shared(MPI_File arg_0, void *arg_1, int arg_2, MPI_Datatype arg_3, MPI_Request *arg_4) { 
     int _wrap_py_return_val = 0;
     PMPI_WRAP(_wrap_py_return_val = PMPI_File_iread_shared(arg_0, arg_1, arg_2, arg_3, arg_4), __func__);
     return _wrap_py_return_val;
 }
 
 /* ================== C Wrappers for MPI_File_iwrite ================== */
-_EXTERN_C_ int PMPI_File_iwrite(MPI_File arg_0, nin_mpi_const void *arg_1, int arg_2, MPI_Datatype arg_3, MPIO_Request *arg_4);
-_EXTERN_C_ int MPI_File_iwrite(MPI_File arg_0, nin_mpi_const void *arg_1, int arg_2, MPI_Datatype arg_3, MPIO_Request *arg_4) { 
+_EXTERN_C_ int PMPI_File_iwrite(MPI_File arg_0, nin_mpi_const void *arg_1, int arg_2, MPI_Datatype arg_3, MPI_Request *arg_4);
+_EXTERN_C_ int MPI_File_iwrite(MPI_File arg_0, nin_mpi_const void *arg_1, int arg_2, MPI_Datatype arg_3, MPI_Request *arg_4) { 
     int _wrap_py_return_val = 0;
     PMPI_WRAP(_wrap_py_return_val = PMPI_File_iwrite(arg_0, arg_1, arg_2, arg_3, arg_4), __func__);
     return _wrap_py_return_val;
 }
 
 /* ================== C Wrappers for MPI_File_iwrite_at ================== */
-_EXTERN_C_ int PMPI_File_iwrite_at(MPI_File arg_0, MPI_Offset arg_1, nin_mpi_const void *arg_2, int arg_3, MPI_Datatype arg_4, MPIO_Request *arg_5);
-_EXTERN_C_ int MPI_File_iwrite_at(MPI_File arg_0, MPI_Offset arg_1, nin_mpi_const void *arg_2, int arg_3, MPI_Datatype arg_4, MPIO_Request *arg_5) { 
+_EXTERN_C_ int PMPI_File_iwrite_at(MPI_File arg_0, MPI_Offset arg_1, nin_mpi_const void *arg_2, int arg_3, MPI_Datatype arg_4, MPI_Request *arg_5);
+_EXTERN_C_ int MPI_File_iwrite_at(MPI_File arg_0, MPI_Offset arg_1, nin_mpi_const void *arg_2, int arg_3, MPI_Datatype arg_4, MPI_Request *arg_5) { 
     int _wrap_py_return_val = 0;
     PMPI_WRAP(_wrap_py_return_val = PMPI_File_iwrite_at(arg_0, arg_1, arg_2, arg_3, arg_4, arg_5), __func__);
     return _wrap_py_return_val;
 }
 
 /* ================== C Wrappers for MPI_File_iwrite_shared ================== */
-_EXTERN_C_ int PMPI_File_iwrite_shared(MPI_File arg_0, nin_mpi_const void *arg_1, int arg_2, MPI_Datatype arg_3, MPIO_Request *arg_4);
-_EXTERN_C_ int MPI_File_iwrite_shared(MPI_File arg_0, nin_mpi_const void *arg_1, int arg_2, MPI_Datatype arg_3, MPIO_Request *arg_4) { 
+_EXTERN_C_ int PMPI_File_iwrite_shared(MPI_File arg_0, nin_mpi_const void *arg_1, int arg_2, MPI_Datatype arg_3, MPI_Request *arg_4);
+_EXTERN_C_ int MPI_File_iwrite_shared(MPI_File arg_0, nin_mpi_const void *arg_1, int arg_2, MPI_Datatype arg_3, MPI_Request *arg_4) { 
     int _wrap_py_return_val = 0;
     PMPI_WRAP(_wrap_py_return_val = PMPI_File_iwrite_shared(arg_0, arg_1, arg_2, arg_3, arg_4), __func__);
     return _wrap_py_return_val;
